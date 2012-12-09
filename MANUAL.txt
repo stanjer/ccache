@@ -274,6 +274,11 @@ WRAPPERS>>.
     If you set the environment variable *CCACHE_DISABLE* then ccache will just
     call the real compiler, bypassing the cache completely.
 
+*CCACHE_EXTERNAL*::
+
+    The *CCACHE_EXTERNAL* environment variable specifies where ccache will look
+    for cached compiler output. Multiple values can be separated by commas.
+
 *CCACHE_EXTENSION*::
 
     ccache tries to automatically determine the extension to use for
