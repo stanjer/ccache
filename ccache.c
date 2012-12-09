@@ -72,6 +72,9 @@ char *current_working_dir = NULL;
 /* the base cache directory */
 char *cache_dir = NULL;
 
+/* external cache directories */
+char *external_cache[] = { "/tmp/external", NULL };
+
 /* the directory for temporary files */
 static char *temp_dir;
 
@@ -194,6 +197,7 @@ unsigned lock_staleness_limit = 2000000;
 enum fromcache_call_mode {
 	FROMCACHE_DIRECT_MODE,
 	FROMCACHE_CPP_MODE,
+	FROMCACHE_EXTERNAL_MODE,
 	FROMCACHE_COMPILED_MODE
 };
 
@@ -884,17 +888,13 @@ get_object_name_from_cpp(struct args *args, struct mdfour *hash)
 }
 
 static void
-update_cached_result_globals(struct file_hash *hash)
+update_cached_result_globals(char *object_name, struct file_hash *hash)
 {
-	char *object_name;
-
-	object_name = format_hash_as_string(hash->hash, hash->size);
 	cached_obj_hash = hash;
 	cached_obj = get_path_in_cache(cache_dir, object_name, ".o");
 	cached_stderr = get_path_in_cache(cache_dir, object_name, ".stderr");
 	cached_dep = get_path_in_cache(cache_dir, object_name, ".d");
 	stats_file = format("%s/%c/stats", cache_dir, object_name[0]);
-	free(object_name);
 }
 
 /*
@@ -1187,8 +1187,9 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 		ret = 0;
 	} else {
 		x_unlink(output_obj);
-		/* only make a hardlink if the cache file is uncompressed */
-		if (getenv("CCACHE_HARDLINK") && !file_is_compressed(cached_obj)) {
+		/* only make a hardlink if the cache file is uncompressed and local */
+		if (getenv("CCACHE_HARDLINK") && !file_is_compressed(cached_obj) &&
+		    mode != FROMCACHE_EXTERNAL_MODE) {
 			ret = link(cached_obj, output_obj);
 		} else {
 			ret = copy_file(cached_obj, output_obj, 0);
@@ -1207,9 +1208,11 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 			failed();
 		}
 		x_unlink(output_obj);
-		x_unlink(cached_stderr);
-		x_unlink(cached_obj);
-		x_unlink(cached_dep);
+		if (mode != FROMCACHE_EXTERNAL_MODE) {
+			x_unlink(cached_stderr);
+			x_unlink(cached_obj);
+			x_unlink(cached_dep);
+		}
 		return;
 	} else {
 		cc_log("Created %s from %s", output_obj, cached_obj);
@@ -1217,8 +1220,9 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 
 	if (produce_dep_file) {
 		x_unlink(output_dep);
-		/* only make a hardlink if the cache file is uncompressed */
-		if (getenv("CCACHE_HARDLINK") && !file_is_compressed(cached_dep)) {
+		/* only make a hardlink if the cache file is uncompressed and local */
+		if (getenv("CCACHE_HARDLINK") && !file_is_compressed(cached_dep) &&
+		    mode != FROMCACHE_EXTERNAL_MODE) {
 			ret = link(cached_dep, output_dep);
 		} else {
 			ret = copy_file(cached_dep, output_dep, 0);
@@ -1239,9 +1243,11 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 			}
 			x_unlink(output_obj);
 			x_unlink(output_dep);
-			x_unlink(cached_stderr);
-			x_unlink(cached_obj);
-			x_unlink(cached_dep);
+			if (mode != FROMCACHE_EXTERNAL_MODE) {
+				x_unlink(cached_stderr);
+				x_unlink(cached_obj);
+				x_unlink(cached_dep);
+			}
 			return;
 		} else {
 			cc_log("Created %s from %s", output_dep, cached_dep);
@@ -1308,6 +1314,11 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 
 	case FROMCACHE_CPP_MODE:
 		cc_log("Succeeded getting cached result");
+		stats_update(STATS_CACHEHIT_CPP);
+		break;
+
+	case FROMCACHE_EXTERNAL_MODE:
+		cc_log("Succeded getting cached result");
 		stats_update(STATS_CACHEHIT_CPP);
 		break;
 
@@ -2030,10 +2041,15 @@ ccache(char *argv[])
 	bool put_object_in_manifest = false;
 	struct file_hash *object_hash;
 	struct file_hash *object_hash_from_manifest = NULL;
+	char *object_name;
 	char *env;
 	struct mdfour common_hash;
 	struct mdfour direct_hash;
 	struct mdfour cpp_hash;
+	char **ext;
+	static char *orig_obj;
+	static char *orig_stderr;
+	static char *orig_dep;
 
 	/* Arguments (except -E) to send to the preprocessor. */
 	struct args *preprocessor_args;
@@ -2101,7 +2117,9 @@ ccache(char *argv[])
 		cc_log("Trying direct lookup");
 		object_hash = calculate_object_hash(preprocessor_args, &direct_hash, 1);
 		if (object_hash) {
-			update_cached_result_globals(object_hash);
+			object_name = format_hash_as_string(object_hash->hash, object_hash->size);
+			update_cached_result_globals(object_name, object_hash);
+			free(object_name);
 
 			/*
 			 * If we can return from cache at this point then do
@@ -2133,7 +2151,8 @@ ccache(char *argv[])
 	if (!object_hash) {
 		fatal("internal error: object hash from cpp returned NULL");
 	}
-	update_cached_result_globals(object_hash);
+	object_name = format_hash_as_string(object_hash->hash, object_hash->size);
+	update_cached_result_globals(object_name, object_hash);
 
 	if (object_hash_from_manifest
 	    && !file_hashes_equal(object_hash_from_manifest, object_hash)) {
@@ -2162,6 +2181,26 @@ ccache(char *argv[])
 
 	/* if we can return from cache at this point then do */
 	from_cache(FROMCACHE_CPP_MODE, put_object_in_manifest);
+
+	orig_obj = cached_obj;
+	orig_stderr = cached_stderr;
+	orig_dep = cached_dep;
+
+	for (ext = external_cache; *ext != NULL; ext++)
+	{
+		cached_obj = get_path_in_cache(*ext, object_name, ".o");
+		cached_stderr = get_path_in_cache(*ext, object_name, ".stderr");
+		cached_dep = get_path_in_cache(*ext, object_name, ".d");
+
+		/* an external cache is still better than compiling */
+		from_cache(FROMCACHE_EXTERNAL_MODE, false);
+	}
+
+	free(object_name);
+
+	cached_obj = orig_obj;
+	cached_stderr = orig_stderr;
+	cached_dep = orig_dep;
 
 	if (getenv("CCACHE_READONLY")) {
 		cc_log("Read-only mode; running real compiler");
