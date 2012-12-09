@@ -73,7 +73,7 @@ char *current_working_dir = NULL;
 char *cache_dir = NULL;
 
 /* external cache directories */
-char *external_cache[] = { "/tmp/external", NULL };
+char **external_cache;
 
 /* the directory for temporary files */
 static char *temp_dir;
@@ -1318,7 +1318,7 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 		break;
 
 	case FROMCACHE_EXTERNAL_MODE:
-		cc_log("Succeded getting cached result");
+		cc_log("Succeded getting external result");
 		stats_update(STATS_CACHEHIT_CPP);
 		break;
 
@@ -2335,7 +2335,10 @@ ccache_main(int argc, char *argv[])
 {
 	char *p;
 	char *program_name;
+	char *external_dir;
 	bool external_tempdir;
+	int dirs;
+	int d;
 
 	signal(SIGHUP, signal_handler);
 	signal(SIGINT, signal_handler);
@@ -2368,6 +2371,22 @@ ccache_main(int argc, char *argv[])
 		if (home_directory) {
 			cache_dir = format("%s/.ccache", home_directory);
 		}
+	}
+
+	external_dir = getenv("CCACHE_EXTERNAL");
+	if (external_dir) {
+		external_dir = x_strdup(external_dir);
+		dirs = 1;
+		for (p = external_dir; *p; p++) {
+			if (*p == ',')
+				dirs++;
+		}
+
+		external_cache = calloc(dirs + 1, sizeof(char *));
+		for (d = 0, p = strtok(external_dir, ","); p; d++, p = strtok(NULL, ",")) {
+			external_cache[d] = p;
+		}
+		external_cache[dirs] = NULL;
 	}
 
 	/* check if we are being invoked as "ccache" */
