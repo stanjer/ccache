@@ -313,7 +313,7 @@ clean_up_internal_tempdir(void)
  * sublevels if needed. Caller frees.
  */
 static char *
-get_path_in_cache(const char *dir, const char *name, const char *suffix)
+get_path_in_cache(const char *dir, const char *name, const char *suffix, int create)
 {
 	int i;
 	char *path;
@@ -324,7 +324,7 @@ get_path_in_cache(const char *dir, const char *name, const char *suffix)
 		char *p = format("%s/%c", path, name[i]);
 		free(path);
 		path = p;
-		if (!getenv("CCACHE_READONLY") && create_dir(path) != 0) {
+		if (create && !getenv("CCACHE_READONLY") && create_dir(path) != 0) {
 			fatal("Failed to create %s: %s", path, strerror(errno));
 		}
 	}
@@ -891,9 +891,9 @@ static void
 update_cached_result_globals(char *object_name, struct file_hash *hash)
 {
 	cached_obj_hash = hash;
-	cached_obj = get_path_in_cache(cache_dir, object_name, ".o");
-	cached_stderr = get_path_in_cache(cache_dir, object_name, ".stderr");
-	cached_dep = get_path_in_cache(cache_dir, object_name, ".d");
+	cached_obj = get_path_in_cache(cache_dir, object_name, ".o", true);
+	cached_stderr = get_path_in_cache(cache_dir, object_name, ".stderr", true);
+	cached_dep = get_path_in_cache(cache_dir, object_name, ".d", true);
 	stats_file = format("%s/%c/stats", cache_dir, object_name[0]);
 }
 
@@ -1118,7 +1118,7 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 			return NULL;
 		}
 		manifest_name = hash_result(hash);
-		manifest_path = get_path_in_cache(cache_dir, manifest_name, ".manifest");
+		manifest_path = get_path_in_cache(cache_dir, manifest_name, ".manifest", true);
 		free(manifest_name);
 		cc_log("Looking for object file hash in %s", manifest_path);
 		object_hash = manifest_get(manifest_path);
@@ -2188,9 +2188,9 @@ ccache(char *argv[])
 
 	for (ext = external_cache; *ext != NULL; ext++)
 	{
-		cached_obj = get_path_in_cache(*ext, object_name, ".o");
-		cached_stderr = get_path_in_cache(*ext, object_name, ".stderr");
-		cached_dep = get_path_in_cache(*ext, object_name, ".d");
+		cached_obj = get_path_in_cache(*ext, object_name, ".o", false);
+		cached_stderr = get_path_in_cache(*ext, object_name, ".stderr", false);
+		cached_dep = get_path_in_cache(*ext, object_name, ".d", false);
 
 		/* an external cache is still better than compiling */
 		from_cache(FROMCACHE_EXTERNAL_MODE, false);
