@@ -78,6 +78,9 @@ static char *temp_dir;
 /* the debug logfile name, if set */
 char *cache_logfile = NULL;
 
+/* the stats logfile name, if set */
+char *cache_statslog = NULL;
+
 /* base directory (from CCACHE_BASEDIR) */
 char *base_dir = NULL;
 
@@ -1684,9 +1687,11 @@ cc_process_args(struct args *orig_args, struct args **preprocessor_args,
 				} else {
 					stats_update(STATS_LINK);
 				}
+				cc_stats_log_file(argv[i]);
 			} else {
 				cc_log("Unsupported source extension: %s", argv[i]);
 				stats_update(STATS_SOURCELANG);
+				cc_stats_log_file(argv[i]);
 			}
 			result = false;
 			goto out;
@@ -1724,6 +1729,7 @@ cc_process_args(struct args *orig_args, struct args **preprocessor_args,
 		if (!language_is_supported(explicit_language)) {
 			cc_log("Unsupported language: %s", explicit_language);
 			stats_update(STATS_SOURCELANG);
+			cc_stats_log_file(input_file);
 			result = false;
 			goto out;
 		}
@@ -1747,6 +1753,7 @@ cc_process_args(struct args *orig_args, struct args **preprocessor_args,
 			} else {
 				stats_update(STATS_LINK);
 			}
+			cc_stats_log_file(input_file);
 			result = false;
 			goto out;
 		}
@@ -1755,6 +1762,7 @@ cc_process_args(struct args *orig_args, struct args **preprocessor_args,
 	if (!actual_language) {
 		cc_log("Unsupported source extension: %s", input_file);
 		stats_update(STATS_SOURCELANG);
+		cc_stats_log_file(input_file);
 		result = false;
 		goto out;
 	}
@@ -1888,6 +1896,7 @@ cc_reset(void)
 	free(current_working_dir); current_working_dir = NULL;
 	free(cache_dir); cache_dir = NULL;
 	cache_logfile = NULL;
+	cache_statslog = NULL;
 	base_dir = NULL;
 	args_free(orig_args); orig_args = NULL;
 	free(input_file); input_file = NULL;
@@ -2038,6 +2047,7 @@ ccache(char *argv[])
 	}
 
 	cc_log("Source file: %s", input_file);
+	cc_stats_log_file(input_file);
 	if (generating_dependencies) {
 		cc_log("Dependency file: %s", output_dep);
 	}
@@ -2255,6 +2265,8 @@ ccache_main(int argc, char *argv[])
 	/* check for logging early so cc_log messages start working ASAP */
 	cache_logfile = getenv("CCACHE_LOGFILE");
 	cc_log("=== CCACHE STARTED =========================================");
+
+	cache_statslog = getenv("CCACHE_STATSLOG");
 
 	/* the user might have set CCACHE_UMASK */
 	p = getenv("CCACHE_UMASK");

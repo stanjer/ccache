@@ -101,6 +101,8 @@ bool hash_file(struct mdfour *md, const char *fname);
 
 void cc_log(const char *format, ...) ATTR_FORMAT(printf, 1, 2);
 void cc_log_argv(const char *prefix, char **argv);
+void cc_stats_log_file(const char *file);
+void cc_stats_log_result(enum stats stat);
 void fatal(const char *format, ...) ATTR_FORMAT(printf, 1, 2);
 
 void copy_fd(int fd_in, int fd_out);
@@ -163,6 +165,7 @@ char *format_size(size_t v);
 void stats_set_sizes(const char *dir, size_t num_files, size_t total_size);
 void stats_read(const char *path, struct counters *counters);
 void stats_write(const char *path, struct counters *counters);
+void print_stats(FILE *fp, enum stats stat);
 
 /* ------------------------------------------------------------------------- */
 /* unify.c */

@@ -95,6 +95,21 @@ display_size(size_t v)
 	free(s);
 }
 
+void
+print_stats(FILE *fp, enum stats stat)
+{
+	int i;
+
+	for (i = 0; stats_info[i].message; i++) {
+		if (stats_info[i].stat != stat) {
+			continue;
+		}
+		fprintf(fp, "%s\n", stats_info[i].message);
+		return;
+	}
+	fprintf(fp, "\n");
+}
+
 /* parse a stats file from a buffer - adding to the counters */
 static void
 parse_stats(struct counters *counters, const char *buf)
@@ -199,6 +214,7 @@ stats_flush(void)
 	bool should_flush = false;
 	int i;
 	extern char *cache_logfile;
+	extern char *cache_statslog;
 
 	if (getenv("CCACHE_NOSTATS")) return;
 
@@ -237,11 +253,12 @@ stats_flush(void)
 	stats_write(stats_file, counters);
 	lockfile_release(stats_file);
 
-	if (cache_logfile) {
+	if (cache_logfile || cache_statslog) {
 		for (i = 0; i < STATS_END; ++i) {
 			if (counter_updates->data[stats_info[i].stat] != 0
 			    && !(stats_info[i].flags & FLAG_NOZERO)) {
 				cc_log("Result: %s", stats_info[i].message);
+				cc_stats_log_result(stats_info[i].stat);
 			}
 		}
 	}

@@ -34,28 +34,29 @@
 #endif
 
 static FILE *logfile;
+static FILE *statslog;
 
-static bool
-init_log(void)
+extern char *cache_logfile;
+extern char *cache_statslog;
+
+static FILE*
+init_log(char *filename)
 {
-	extern char *cache_logfile;
+	FILE *logfile;
 
-	if (logfile) {
-		return true;
+	if (!filename) {
+		return NULL;
 	}
-	if (!cache_logfile) {
-		return false;
-	}
-	logfile = fopen(cache_logfile, "a");
+	logfile = fopen(filename, "a");
 	if (logfile) {
 		int fd = fileno(logfile);
 		int flags = fcntl(fd, F_GETFD, 0);
 		if (flags >= 0) {
 			fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
 		}
-		return true;
+		return logfile;
 	} else {
-		return false;
+		return NULL;
 	}
 }
 
@@ -89,7 +90,10 @@ cc_log(const char *format, ...)
 {
 	va_list ap;
 
-	if (!init_log()) {
+	if (!logfile) {
+		logfile = init_log(cache_logfile);
+	}
+	if (!logfile) {
 		return;
 	}
 
@@ -107,7 +111,10 @@ cc_log(const char *format, ...)
 void
 cc_log_argv(const char *prefix, char **argv)
 {
-	if (!init_log()) {
+	if (!logfile) {
+		logfile = init_log(cache_logfile);
+	}
+	if (!logfile) {
 		return;
 	}
 
@@ -115,6 +122,39 @@ cc_log_argv(const char *prefix, char **argv)
 	fputs(prefix, logfile);
 	print_command(logfile, argv);
 	fflush(logfile);
+}
+
+/*
+ * Log source file to the CCACHE_STATSLOG location.
+ */
+void
+cc_stats_log_file(const char *file)
+{
+	if (!statslog) {
+		statslog = init_log(cache_statslog);
+	}
+	if (!statslog) {
+		return;
+	}
+
+	fprintf(statslog, "%s\t", file);
+}
+
+/*
+ * Log cache result to the CCACHE_STATSLOG location.
+ */
+void
+cc_stats_log_result(enum stats stat)
+{
+	if (!statslog) {
+		statslog = init_log(cache_statslog);
+	}
+	if (!statslog) {
+		return;
+	}
+
+	print_stats(statslog, stat);
+	fflush(statslog);
 }
 
 /* something went badly wrong! */

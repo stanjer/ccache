@@ -319,6 +319,13 @@ WRAPPERS>>.
     information on what it is doing to the specified file. This is useful for
     tracking down problems.
 
+*CCACHE_STATSLOG*::
+
+    If you set the *CCACHE_STATSLOG* environment variable then ccache will
+    write information about each source file and cache result to the specified
+    file. This is useful for logging statistics for just one build, when using
+    a shared cache.
+
 *CCACHE_NLEVELS*::
 
     The environment variable *CCACHE_NLEVELS* allows you to choose the number
