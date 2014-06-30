@@ -2082,6 +2082,12 @@ ccache(char *argv[])
 		if (nlevels > 8) nlevels = 8;
 	}
 
+	if ((env = getenv("CCACHE_LIMIT"))) {
+		limit = atof(env);
+		if (limit < 0.0) limit = 0.0;
+		if (limit > 1.0) limit = 1.0;
+	}
+
 	if (!cc_process_args(orig_args, &preprocessor_args, &compiler_args)) {
 		failed();
 	}

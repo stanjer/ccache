@@ -325,6 +325,12 @@ WRAPPERS>>.
     of levels of hash in the cache directory. The default is 2. The minimum is
     1 and the maximum is 8.
 
+*CCACHE_LIMIT*::
+
+   The environment variable *CCACHE_LIMIT* sets the limit when cleaning up.
+   Files are deleted (in LRU order) until the levels are below the limit.
+   The default is 0.8.
+
 *CCACHE_NODIRECT*::
 
     If you set the environment variable *CCACHE_NODIRECT* then ccache will not

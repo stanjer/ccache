@@ -26,6 +26,8 @@
  */
 #define LIMIT_MULTIPLE 0.8
 
+double limit = LIMIT_MULTIPLE;
+
 static struct files {
 	char *fname;
 	time_t mtime;
@@ -181,8 +183,8 @@ cleanup_dir(const char *dir, size_t maxfiles, size_t maxsize)
 
 	cc_log("Cleaning up cache directory %s", dir);
 
-	cache_size_threshold = maxsize * LIMIT_MULTIPLE;
-	files_in_cache_threshold = maxfiles * LIMIT_MULTIPLE;
+	cache_size_threshold = maxsize * limit;
+	files_in_cache_threshold = maxfiles * limit;
 
 	num_files = 0;
 	cache_size = 0;
