@@ -444,3 +444,34 @@ stats_set_sizes(const char *dir, size_t num_files, size_t total_size)
 	free(statsfile);
 	counters_free(counters);
 }
+
+/* subtract from per directory sizes */
+void
+stats_sub_sizes(const char *dir, size_t num_files, size_t total_size)
+{
+	struct counters *counters = counters_init(STATS_END);
+	char *statsfile;
+
+	create_dir(dir);
+	statsfile = format("%s/stats", dir);
+
+	if (num_files == 0 && total_size == 0)
+		goto skip;
+
+	if (lockfile_acquire(statsfile, lock_staleness_limit)) {
+		stats_read(statsfile, counters);
+		if (counters->data[STATS_NUMFILES] > num_files)
+			counters->data[STATS_NUMFILES] -= num_files;
+		else
+			counters->data[STATS_NUMFILES] = 0;
+		if (counters->data[STATS_TOTALSIZE] > total_size)
+			counters->data[STATS_TOTALSIZE] -= total_size;
+		else
+			counters->data[STATS_TOTALSIZE] = 0;
+		stats_write(statsfile, counters);
+		lockfile_release(statsfile);
+	}
+skip:
+	free(statsfile);
+	counters_free(counters);
+}

@@ -52,6 +52,17 @@ files_compare(struct files **f1, struct files **f2)
 	return 1;
 }
 
+/* traverse function for caching stat calls */
+static void
+cache_fn(const char *fname, struct stat *st)
+{
+	(void) fname;
+	if (!S_ISREG(st->st_mode)) return;
+
+	cache_size += file_size(st) / 1024;
+	files_in_cache++;
+}
+
 /* this builds the list of files in the cache */
 static void
 traverse_fn(const char *fname, struct stat *st)
@@ -178,11 +189,34 @@ void
 cleanup_dir(const char *dir, size_t maxfiles, size_t maxsize)
 {
 	unsigned i;
+	size_t files_in_cache_before;
+	size_t cache_size_before;
 
 	cc_log("Cleaning up cache directory %s", dir);
 
+	cache_size = 0;
+	files_in_cache = 0;
+
 	cache_size_threshold = maxsize * LIMIT_MULTIPLE;
 	files_in_cache_threshold = maxfiles * LIMIT_MULTIPLE;
+
+	/* prepare the disk cache */
+	traverse(dir, cache_fn);
+
+	if (files_in_cache_threshold > 0)
+		cc_log("Files in directory: %ld/%ld",
+		       (long) files_in_cache,
+		       (long) files_in_cache_threshold);
+	else
+		cc_log("Files in directory: %ld",
+		       (long) files_in_cache);
+	if (cache_size_threshold > 0)
+		cc_log("Directory size (K): %ld/%ld",
+		       (long) cache_size,
+		       (long) cache_size_threshold);
+	else
+		cc_log("Directory size (K): %ld",
+		       (long) cache_size);
 
 	num_files = 0;
 	cache_size = 0;
@@ -191,10 +225,17 @@ cleanup_dir(const char *dir, size_t maxfiles, size_t maxsize)
 	/* build a list of files */
 	traverse(dir, traverse_fn);
 
+	stats_set_sizes(dir, files_in_cache, cache_size);
+
+	files_in_cache_before = files_in_cache;
+	cache_size_before = cache_size;
+
 	/* clean the cache */
 	sort_and_clean();
 
-	stats_set_sizes(dir, files_in_cache, cache_size);
+	stats_sub_sizes(dir,
+	                files_in_cache_before - files_in_cache,
+	                cache_size_before - cache_size);
 
 	/* free it up */
 	for (i = 0; i < num_files; i++) {
