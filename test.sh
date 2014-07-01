@@ -27,6 +27,7 @@ unset CCACHE_CPP2
 unset CCACHE_DIR
 unset CCACHE_DISABLE
 unset CCACHE_EXTENSION
+unset CCACHE_EXTERNAL
 unset CCACHE_EXTRAFILES
 unset CCACHE_HARDLINK
 unset CCACHE_HASHDIR
@@ -1832,6 +1833,52 @@ EOF
     checkstat 'cache miss' 2
 }
 
+external_suite() {
+    ##################################################################
+    # Create some code to compile.
+    cat <<EOF >test.c
+int test;
+EOF
+
+    ##################################################################
+    # Check that we can get internal hits
+    testname="internal cache dir"
+    checkstat 'cache hit (preprocessed)' 0
+    checkstat 'cache hit (external)' 0
+
+    $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 0
+    checkstat 'cache hit (external)' 0
+
+    $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 1
+    checkstat 'cache hit (external)' 0
+
+    $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 2
+    checkstat 'files in cache' 1
+
+    ##################################################################
+    # Check that we can get external hits
+    testname="external cache dir"
+    mv $CCACHE_DIR external
+    checkstat 'files in cache' 0
+
+    CCACHE_READONLY=1 $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 0
+    checkstat 'cache hit (external)' 0
+
+    CCACHE_EXTERNAL=external $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 0
+    checkstat 'cache hit (external)' 1
+
+    CCACHE_EXTERNAL=external $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (external)' 2
+    checkstat 'files in cache' 0
+
+    rm -rf external
+}
+
 ######################################################################
 # main program
 
@@ -1881,6 +1928,7 @@ readonly
 extrafiles
 cleanup
 pch
+external
 "
 
 host_os="`uname -s`"
