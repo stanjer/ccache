@@ -72,8 +72,11 @@ char *current_working_dir = NULL;
 /* the base cache directory */
 char *cache_dir = NULL;
 
+/* empty string array, null-terminated */
+static char *external_none[] = { NULL };
+
 /* external cache directories */
-char **external_cache;
+char **external_cache = external_none;
 
 /* the directory for temporary files */
 static char *temp_dir;
