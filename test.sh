@@ -1876,6 +1876,15 @@ EOF
     checkstat 'cache hit (external)' 2
     checkstat 'files in cache' 0
 
+    ##################################################################
+    # Check that we can use additional dirs
+    testname="external secondary"
+    mkdir directory
+
+    CCACHE_EXTERNAL=directory,external $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (external)' 3
+
+    rmdir directory
     rm -rf external
 }
 
