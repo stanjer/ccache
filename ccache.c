@@ -1322,7 +1322,7 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 
 	case FROMCACHE_EXTERNAL_MODE:
 		cc_log("Succeded getting external result");
-		stats_update(STATS_CACHEHIT_CPP);
+		stats_update(STATS_CACHEHIT_EXT);
 		break;
 
 	case FROMCACHE_COMPILED_MODE:

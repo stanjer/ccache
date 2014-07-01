@@ -58,6 +58,7 @@ static struct {
 } stats_info[] = {
 	{ STATS_CACHEHIT_DIR, "cache hit (direct)             ", NULL, FLAG_ALWAYS },
 	{ STATS_CACHEHIT_CPP, "cache hit (preprocessed)       ", NULL, FLAG_ALWAYS },
+	{ STATS_CACHEHIT_EXT, "cache hit (external)           ", NULL, FLAG_ALWAYS },
 	{ STATS_TOCACHE,      "cache miss                     ", NULL, FLAG_ALWAYS },
 	{ STATS_LINK,         "called for link                ", NULL, 0 },
 	{ STATS_PREPROCESSING, "called for preprocessing       ", NULL, 0 },
