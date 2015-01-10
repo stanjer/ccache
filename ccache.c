@@ -1572,13 +1572,16 @@ to_memcached(struct args *args)
 	const char *tmp_dir = temp_dir();
 	int added_bytes=0;
 	char *tmp_stdout, *tmp_stderr, *tmp_obj, *tmp_dia;
+	int tmp_stdout_fd, tmp_stderr_fd;
 	char  *stderr_d, *obj_d, *dia_d, *dep_d=0;
 	size_t stderr_l=0,  obj_l=0,  dia_l=0, dep_l=0;
 	struct stat st;
 	int status;
 
 	tmp_stdout = format("%s/%s.tmp.stdout.%s", tmp_dir, cached_obj, tmp_string());
+	tmp_stdout_fd = create_tmp_fd(&tmp_stdout);
 	tmp_stderr = format("%s/%s.tmp.stderr.%s", tmp_dir, cached_obj, tmp_string());
+	tmp_stderr_fd = create_tmp_fd(&tmp_stderr);
 
 	if (create_parent_dirs(tmp_stdout) != 0) {
 		fatal("Failed to create parent directory for %s: %s",
@@ -1614,7 +1617,7 @@ to_memcached(struct args *args)
 	}
 
 	cc_log("Running real compiler");
-	status = execute(args->argv, tmp_stdout, tmp_stderr);
+	status = execute(args->argv, tmp_stdout_fd, tmp_stderr_fd);
 	args_pop(args, 3);
 
 	if (stat(tmp_stdout, &st) != 0) {
@@ -1740,7 +1743,7 @@ to_memcached(struct args *args)
 			stats_update(STATS_ERROR);
 			failed();
 		} else {
-			stats_update_size(STATS_NONE, dep_l, 1);
+			stats_update_size(dep_l, 1);
 		}
 	}
 
@@ -1768,7 +1771,7 @@ to_memcached(struct args *args)
 		stats_update(STATS_ERROR);
 		failed();
 	}
-	stats_update_size(STATS_TOCACHE, added_bytes, 1);
+	stats_update_size(added_bytes, 1);
 
 	free(tmp_obj);
 	free(tmp_stderr);
@@ -1879,7 +1882,7 @@ from_memcached(enum fromcache_call_mode mode, bool put_object_in_manifest)
 			cc_log("Added object file hash to %s", manifest_path);
 			update_mtime(manifest_path);
 			stat(manifest_path, &st);
-			stats_update_size(STATS_NONE,
+			stats_update_size(
 			                  (file_size(&st) - old_size),
 			                  old_size == 0 ? 1 : 0);
 		} else {
