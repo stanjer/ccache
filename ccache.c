@@ -2,7 +2,7 @@
  * ccache -- a fast C/C++ compiler cache
  *
  * Copyright (C) 2002-2007 Andrew Tridgell
- * Copyright (C) 2009-2013 Joel Rosdahl
+ * Copyright (C) 2009-2014 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -170,9 +170,6 @@ char *stats_file = NULL;
 /* Whether the output is a precompiled header */
 static bool output_is_precompiled_header = false;
 
-/* Whether we should output to the real object first before saving into cache */
-static bool output_to_real_object_first = false;
-
 /* Profile generation / usage information */
 static char *profile_dir = NULL;
 static bool profile_use = false;
@@ -197,6 +194,14 @@ enum fromcache_call_mode {
 	FROMCACHE_CPP_MODE,
 	FROMCACHE_COMPILED_MODE
 };
+
+struct pending_tmp_file {
+	char *path;
+	struct pending_tmp_file *next;
+};
+
+/* Temporary files to remove at program exit. */
+static struct pending_tmp_file *pending_tmp_files = NULL;
 
 /*
  * This is a string that identifies the current "version" of the hash sum
@@ -268,36 +273,102 @@ failed(void)
 	fatal("execv of %s failed: %s", orig_args->argv[0], strerror(errno));
 }
 
-static void
-clean_up_tmp_files()
-{
-	/* delete intermediate pre-processor file if needed */
-	if (i_tmpfile) {
-		if (!direct_i_file) {
-			tmp_unlink(i_tmpfile);
-		}
-		free(i_tmpfile);
-		i_tmpfile = NULL;
-	}
-
-	/* delete the cpp stderr file if necessary */
-	if (cpp_stderr) {
-		tmp_unlink(cpp_stderr);
-		free(cpp_stderr);
-		cpp_stderr = NULL;
-	}
-}
-
 static const char *
 temp_dir()
 {
 	static char *path = NULL;
-	if (path) return path;  /* Memoize */
+	if (path) {
+		return path; /* Memoize */
+	}
 	path = conf->temporary_dir;
 	if (str_eq(path, "")) {
 		path = format("%s/tmp", conf->cache_dir);
 	}
 	return path;
+}
+
+static void
+add_pending_tmp_file(const char *path)
+{
+	struct pending_tmp_file *e = x_malloc(sizeof(*e));
+	e->path = x_strdup(path);
+	e->next = pending_tmp_files;
+	pending_tmp_files = e;
+}
+
+static void
+clean_up_pending_tmp_files(void)
+{
+	struct pending_tmp_file *p = pending_tmp_files;
+	while (p) {
+		tmp_unlink(p->path);
+		p = p->next;
+		/* Leak p->path and p here because clean_up_pending_tmp_files needs to be signal
+		 * safe. */
+	}
+}
+
+static void
+signal_handler(int signo)
+{
+	(void)signo;
+	clean_up_pending_tmp_files();
+}
+
+static void
+clean_up_internal_tempdir(void)
+{
+	DIR *dir;
+	struct dirent *entry;
+	struct stat st;
+	time_t now = time(NULL);
+
+	stat(conf->cache_dir, &st);
+	if (st.st_mtime + 3600 >= now) {
+		/* No cleanup needed. */
+		return;
+	}
+
+	update_mtime(conf->cache_dir);
+
+	dir = opendir(temp_dir());
+	if (!dir) {
+		return;
+	}
+
+	while ((entry = readdir(dir))) {
+		char *path;
+
+		if (str_eq(entry->d_name, ".") || str_eq(entry->d_name, "..")) {
+			continue;
+		}
+
+		path = format("%s/%s", temp_dir(), entry->d_name);
+		if (lstat(path, &st) == 0 && st.st_mtime + 3600 < now) {
+			tmp_unlink(path);
+		}
+		free(path);
+	}
+
+	closedir(dir);
+}
+
+static char *
+get_current_working_dir(void)
+{
+	if (!current_working_dir) {
+		char *cwd = get_cwd();
+		if (cwd) {
+			current_working_dir = x_realpath(cwd);
+			free(cwd);
+		}
+		if (!current_working_dir) {
+			cc_log("Unable to determine current working directory: %s",
+			       strerror(errno));
+			failed();
+		}
+	}
+	return current_working_dir;
 }
 
 /*
@@ -459,36 +530,50 @@ ignore:
 static char *
 make_relative_path(char *path)
 {
-	char *relpath, *canon_path;
+	char *relpath, *canon_path, *path_suffix = NULL;
+	struct stat st;
 
 	if (str_eq(conf->base_dir, "") || !str_startswith(path, conf->base_dir)) {
 		return path;
 	}
 
-	if (!current_working_dir) {
-		char *cwd = get_cwd();
-		if (cwd) {
-			current_working_dir = x_realpath(cwd);
-			free(cwd);
+	/* x_realpath only works for existing paths, so if path doesn't exist, try
+	 * dirname(path) and assemble the path afterwards. We only bother to try
+	 * canonicalizing one of these two paths since a compiler path argument
+	 * typically only makes sense if path or dirname(path) exists. */
+	if (stat(path, &st) != 0) {
+		/* path doesn't exist. */
+		char *dir, *p;
+		dir = dirname(path);
+		if (stat(dir, &st) != 0) {
+			/* And neither does its parent directory, so no action to take. */
+			free(dir);
+			return path;
 		}
-		if (!current_working_dir) {
-			cc_log("Unable to determine current working directory: %s",
-			       strerror(errno));
-			failed();
-		}
+		path_suffix = basename(path);
+		p = path;
+		path = dirname(path);
+		free(p);
 	}
 
 	canon_path = x_realpath(path);
 	if (canon_path) {
 		free(path);
-		path = canon_path;
+		relpath = get_relative_path(get_current_working_dir(), canon_path);
+		free(canon_path);
+		if (path_suffix) {
+			path = format("%s/%s", relpath, path_suffix);
+			free(relpath);
+			free(path_suffix);
+			return path;
+		} else {
+			return relpath;
+		}
 	} else {
 		/* path doesn't exist, so leave it as it is. */
+		free(path_suffix);
+		return path;
 	}
-
-	relpath = get_relative_path(current_working_dir, path);
-	free(path);
-	return relpath;
 }
 
 /*
@@ -598,40 +683,89 @@ process_preprocessed_file(struct mdfour *hash, const char *path)
 	return true;
 }
 
+/* Copy or link a file to the cache. */
+static void
+put_file_in_cache(const char *source, const char *dest)
+{
+	int ret;
+	struct stat st;
+	bool do_link = conf->hard_link && !conf->compression;
+
+	if (do_link) {
+		x_unlink(dest);
+		ret = link(source, dest);
+	} else {
+		ret = copy_file(source, dest, conf->compression);
+	}
+	if (ret != 0) {
+		cc_log("Failed to %s %s to %s: %s",
+		       do_link ? "link" : "copy",
+		       source,
+		       dest,
+		       strerror(errno));
+		stats_update(STATS_ERROR);
+		failed();
+	}
+	cc_log("Stored in cache: %s -> %s", source, dest);
+	if (stat(dest, &st) != 0) {
+		cc_log("Failed to stat %s: %s", dest, strerror(errno));
+		stats_update(STATS_ERROR);
+		failed();
+	}
+	stats_update_size(file_size(&st), 1);
+}
+
+/* Copy or link a file from the cache. */
+static void
+get_file_from_cache(const char *source, const char *dest)
+{
+	int ret;
+	bool do_link = conf->hard_link && !file_is_compressed(source);
+
+	if (do_link) {
+		x_unlink(dest);
+		ret = link(source, dest);
+	} else {
+		ret = copy_file(source, dest, 0);
+	}
+
+	if (ret == -1) {
+		if (errno == ENOENT) {
+			/* Someone removed the file just before we began copying? */
+			cc_log("Cache file %s just disappeared from cache", source);
+			stats_update(STATS_MISSING);
+		} else {
+			cc_log("Failed to %s %s to %s: %s",
+			       do_link ? "link" : "copy",
+			       source,
+			       dest,
+			       strerror(errno));
+			stats_update(STATS_ERROR);
+		}
+		failed();
+	}
+
+	cc_log("Created from cache: %s -> %s", source, dest);
+}
+
 /* run the real compiler and put the result in cache */
 static void
 to_fscache(struct args *args)
 {
-	char *tmp_stdout, *tmp_stderr, *tmp_obj, *tmp_dia;
+	char *tmp_stdout, *tmp_stderr, *tmp_dia;
 	struct stat st;
-	int status;
-	size_t added_bytes = 0;
-	unsigned added_files = 0;
+	int status, tmp_stdout_fd, tmp_stderr_fd;
 
-	if (create_parent_dirs(cached_obj) != 0) {
-		fatal("Failed to create parent directory for %s: %s",
-		      cached_obj, strerror(errno));
-	}
-	tmp_stdout = format("%s.tmp.stdout.%s", cached_obj, tmp_string());
-	tmp_stderr = format("%s.tmp.stderr.%s", cached_obj, tmp_string());
-
-	if (output_to_real_object_first) {
-		tmp_obj = x_strdup(output_obj);
-		cc_log("Outputting to final destination: %s", tmp_obj);
-	} else {
-		tmp_obj = format("%s.tmp.%s", cached_obj, tmp_string());
-	}
+	tmp_stdout = format("%s.tmp.stdout", cached_obj);
+	tmp_stdout_fd = create_tmp_fd(&tmp_stdout);
+	tmp_stderr = format("%s.tmp.stderr", cached_obj);
+	tmp_stderr_fd = create_tmp_fd(&tmp_stderr);
 
 	args_add(args, "-o");
-	args_add(args, tmp_obj);
+	args_add(args, output_obj);
 
 	if (output_dia) {
-		if (output_to_real_object_first) {
-			tmp_dia = x_strdup(output_dia);
-			cc_log("Outputting to final destination: %s", tmp_dia);
-		} else {
-			tmp_dia = format("%s.tmp.dia.%s", cached_obj, tmp_string());
-		}
+		tmp_dia = x_strdup(output_dia);
 		args_add(args, "--serialize-diagnostics");
 		args_add(args, tmp_dia);
 	} else {
@@ -652,7 +786,7 @@ to_fscache(struct args *args)
 	}
 
 	cc_log("Running real compiler");
-	status = execute(args->argv, tmp_stdout, tmp_stderr);
+	status = execute(args->argv, tmp_stdout_fd, tmp_stderr_fd);
 	args_pop(args, 3);
 
 	if (stat(tmp_stdout, &st) != 0) {
@@ -661,7 +795,6 @@ to_fscache(struct args *args)
 		stats_update(STATS_MISSING);
 		tmp_unlink(tmp_stdout);
 		tmp_unlink(tmp_stderr);
-		tmp_unlink(tmp_obj);
 		failed();
 	}
 	if (st.st_size != 0) {
@@ -669,7 +802,6 @@ to_fscache(struct args *args)
 		stats_update(STATS_STDOUT);
 		tmp_unlink(tmp_stdout);
 		tmp_unlink(tmp_stderr);
-		tmp_unlink(tmp_obj);
 		if (tmp_dia) {
 			tmp_unlink(tmp_dia);
 		}
@@ -687,7 +819,7 @@ to_fscache(struct args *args)
 		int fd_result;
 		char *tmp_stderr2;
 
-		tmp_stderr2 = format("%s.tmp.stderr2.%s", cached_obj, tmp_string());
+		tmp_stderr2 = format("%s.2", tmp_stderr);
 		if (x_rename(tmp_stderr, tmp_stderr2)) {
 			cc_log("Failed to rename %s to %s: %s", tmp_stderr, tmp_stderr2,
 			       strerror(errno));
@@ -724,28 +856,47 @@ to_fscache(struct args *args)
 
 		fd = open(tmp_stderr, O_RDONLY | O_BINARY);
 		if (fd != -1) {
-			if (str_eq(output_obj, "/dev/null")
-			    || (!output_to_real_object_first
-			        && access(tmp_obj, R_OK) == 0
-			        && move_file(tmp_obj, output_obj, 0) == 0)
-			    || errno == ENOENT) {
+			if (str_eq(output_obj, "/dev/null") || errno == ENOENT) {
 				/* we can use a quick method of getting the failed output */
 				copy_fd(fd, 2);
 				close(fd);
 				tmp_unlink(tmp_stderr);
+
+				if (output_dia) {
+					int ret;
+					x_unlink(output_dia);
+					/* only make a hardlink if the cache file is uncompressed */
+					ret = move_file(tmp_dia, output_dia, 0);
+
+					if (ret == -1) {
+						if (errno == ENOENT) {
+							/* Someone removed the file just before we began copying? */
+							cc_log("Diagnostic file %s just disappeared", output_dia);
+							stats_update(STATS_MISSING);
+						} else {
+							cc_log("Failed to move %s to %s: %s",
+							       tmp_dia, output_dia, strerror(errno));
+							stats_update(STATS_ERROR);
+							failed();
+						}
+						x_unlink(tmp_dia);
+					} else {
+						cc_log("Created %s from %s", output_dia, tmp_dia);
+					}
+				}
+
 				exit(status);
 			}
 		}
 
 		tmp_unlink(tmp_stderr);
-		tmp_unlink(tmp_obj);
 		if (tmp_dia) {
 			tmp_unlink(tmp_dia);
 		}
 		failed();
 	}
 
-	if (stat(tmp_obj, &st) != 0) {
+	if (stat(output_obj, &st) != 0) {
 		cc_log("Compiler didn't produce an object file");
 		stats_update(STATS_NOOUTPUT);
 		failed();
@@ -774,8 +925,7 @@ to_fscache(struct args *args)
 		if (conf->compression) {
 			stat(cached_stderr, &st);
 		}
-		added_bytes += file_size(&st);
-		added_files += 1;
+		stats_update_size(file_size(&st), 1);
 	} else {
 		tmp_unlink(tmp_stderr);
 		if (conf->recache) {
@@ -791,70 +941,12 @@ to_fscache(struct args *args)
 			failed();
 		}
 		if (st.st_size > 0) {
-			if (output_to_real_object_first) {
-				int ret;
-				if (conf->hard_link && !conf->compression) {
-					ret = link(tmp_dia, cached_dia);
-				} else {
-					ret = copy_file(tmp_dia, cached_dia, conf->compression);
-				}
-				if (ret != 0) {
-					cc_log("Failed to copy/link %s to %s: %s",
-					       tmp_dia, cached_dia, strerror(errno));
-					stats_update(STATS_ERROR);
-					failed();
-				}
-			} else if (move_uncompressed_file(
-				           tmp_dia, cached_dia,
-				           conf->compression ? conf->compression_level : 0) != 0) {
-				cc_log("Failed to move %s to %s: %s", tmp_dia, cached_dia,
-				       strerror(errno));
-				stats_update(STATS_ERROR);
-				failed();
-			}
-			cc_log("Stored in cache: %s", cached_dia);
-			stat(cached_dia, &st);
-			added_bytes += file_size(&st);
-			added_files += 1;
+			put_file_in_cache(tmp_dia, cached_dia);
 		}
 	}
 
-	if (output_to_real_object_first) {
-		int ret;
-		if (conf->hard_link && !conf->compression) {
-			ret = link(tmp_obj, cached_obj);
-		} else {
-			ret = copy_file(tmp_obj, cached_obj, conf->compression);
-		}
-		if (ret != 0) {
-			cc_log("Failed to copy/link %s to %s: %s",
-			       tmp_obj, cached_obj, strerror(errno));
-			stats_update(STATS_ERROR);
-			failed();
-		}
-	} else if (move_uncompressed_file(
-		           tmp_obj, cached_obj,
-		           conf->compression ? conf->compression_level : 0) != 0) {
-		cc_log("Failed to move %s to %s: %s", tmp_obj, cached_obj, strerror(errno));
-		stats_update(STATS_ERROR);
-		failed();
-	}
-	cc_log("Stored in cache: %s", cached_obj);
-	stat(cached_obj, &st);
-	added_bytes += file_size(&st);
-	added_files += 1;
-
-	/*
-	 * Do an extra stat on the potentially compressed object file for the
-	 * size statistics.
-	 */
-	if (stat(cached_obj, &st) != 0) {
-		cc_log("Failed to stat %s: %s", cached_obj, strerror(errno));
-		stats_update(STATS_ERROR);
-		failed();
-	}
-
-	stats_update_size(STATS_TOCACHE, added_bytes, added_files);
+	put_file_in_cache(output_obj, cached_obj);
+	stats_update(STATS_TOCACHE);
 
 	/* Make sure we have a CACHEDIR.TAG
 	 * This can be almost anywhere, but might as well do it near the end
@@ -867,7 +959,6 @@ to_fscache(struct args *args)
 		failed();
 	}
 
-	free(tmp_obj);
 	free(tmp_stderr);
 	free(tmp_stdout);
 	free(tmp_dia);
@@ -883,7 +974,7 @@ get_object_name_from_cpp(struct args *args, struct mdfour *hash)
 	char *input_base;
 	char *tmp;
 	char *path_stdout, *path_stderr;
-	int status;
+	int status, path_stderr_fd;
 	struct file_hash *result;
 
 	/* ~/hello.c -> tmp.hello.123.i
@@ -892,68 +983,53 @@ get_object_name_from_cpp(struct args *args, struct mdfour *hash)
 	   maximum filename length limits */
 	input_base = basename(input_file);
 	tmp = strchr(input_base, '.');
-	if (tmp != NULL) {
+	if (tmp) {
 		*tmp = 0;
 	}
 	if (strlen(input_base) > 10) {
 		input_base[10] = 0;
 	}
 
-	/* now the run */
-	path_stdout = format(
-		"%s/%s.tmp.%s.%s",
-		temp_dir(), input_base, tmp_string(), conf->cpp_extension);
-	path_stderr = format("%s/tmp.cpp_stderr.%s", temp_dir(), tmp_string());
-
-	if (create_parent_dirs(path_stdout) != 0) {
-		fatal("Failed to create parent directory for %s: %s\n",
-		      path_stdout, strerror(errno));
-	}
+	path_stderr = format("%s/tmp.cpp_stderr", temp_dir());
+	path_stderr_fd = create_tmp_fd(&path_stderr);
+	add_pending_tmp_file(path_stderr);
 
 	time_of_compilation = time(NULL);
 
-	if (!direct_i_file) {
-		/* run cpp on the input file to obtain the .i */
+	if (direct_i_file) {
+		/* We are compiling a .i or .ii file - that means we can skip the cpp stage
+		 * and directly form the correct i_tmpfile. */
+		path_stdout = input_file;
+		status = 0;
+	} else {
+		/* Run cpp on the input file to obtain the .i. */
+		int path_stdout_fd;
+		path_stdout = format("%s/%s.stdout", temp_dir(), input_base);
+		path_stdout_fd = create_tmp_fd(&path_stdout);
+		add_pending_tmp_file(path_stdout);
+
 		args_add(args, "-E");
 		args_add(args, input_file);
 		cc_log("Running preprocessor");
-		status = execute(args->argv, path_stdout, path_stderr);
+		status = execute(args->argv, path_stdout_fd, path_stderr_fd);
 		args_pop(args, 2);
-	} else {
-		/* we are compiling a .i or .ii file - that means we
-		   can skip the cpp stage and directly form the
-		   correct i_tmpfile */
-		path_stdout = input_file;
-		if (create_empty_file(path_stderr) != 0) {
-			cc_log("Failed to create %s: %s", path_stderr, strerror(errno));
-			stats_update(STATS_ERROR);
-			failed();
-		}
-		status = 0;
 	}
 
 	if (status != 0) {
-		if (!direct_i_file) {
-			tmp_unlink(path_stdout);
-		}
-		tmp_unlink(path_stderr);
 		cc_log("Preprocessor gave exit status %d", status);
 		stats_update(STATS_PREPROCESSOR);
 		failed();
 	}
 
 	if (conf->unify) {
-		/*
-		 * When we are doing the unifying tricks we need to include the
-		 * input file name in the hash to get the warnings right.
-		 */
+		/* When we are doing the unifying tricks we need to include the input file
+		 * name in the hash to get the warnings right. */
 		hash_delimiter(hash, "unifyfilename");
 		hash_string(hash, input_file);
 
 		hash_delimiter(hash, "unifycpp");
 		if (unify_hash(hash, path_stdout) != 0) {
 			stats_update(STATS_ERROR);
-			tmp_unlink(path_stderr);
 			cc_log("Failed to unify %s", path_stdout);
 			failed();
 		}
@@ -961,7 +1037,6 @@ get_object_name_from_cpp(struct args *args, struct mdfour *hash)
 		hash_delimiter(hash, "cpp");
 		if (!process_preprocessed_file(hash, path_stdout)) {
 			stats_update(STATS_ERROR);
-			tmp_unlink(path_stderr);
 			failed();
 		}
 	}
@@ -971,10 +1046,17 @@ get_object_name_from_cpp(struct args *args, struct mdfour *hash)
 		fatal("Failed to open %s: %s", path_stderr, strerror(errno));
 	}
 
-	i_tmpfile = path_stdout;
+	if (direct_i_file) {
+		i_tmpfile = input_file;
+	} else {
+		/* i_tmpfile needs the proper cpp_extension for the compiler to do its
+		 * thing correctly. */
+		i_tmpfile = format("%s.%s", path_stdout, conf->cpp_extension);
+		x_rename(path_stdout, i_tmpfile);
+		add_pending_tmp_file(i_tmpfile);
+	}
 
 	if (conf->run_second_cpp) {
-		tmp_unlink(path_stderr);
 		free(path_stderr);
 	} else {
 		/*
@@ -1028,6 +1110,29 @@ hash_compiler(struct mdfour *hash, struct stat *st, const char *path,
 			fatal("Failure running compiler check command: %s", conf->compiler_check);
 		}
 	}
+}
+
+/*
+ * Note that these compiler checks are unreliable, so nothing should
+ * hard-depend on them.
+ */
+
+static bool
+compiler_is_clang(struct args *args)
+{
+	char* name = basename(args->argv[0]);
+	bool is = strstr(name, "clang");
+	free(name);
+	return is;
+}
+
+static bool
+compiler_is_gcc(struct args *args)
+{
+	char* name = basename(args->argv[0]);
+	bool is = strstr(name, "gcc") || strstr(name, "g++");
+	free(name);
+	return is;
 }
 
 /*
@@ -1094,6 +1199,15 @@ calculate_common_hash(struct args *args, struct mdfour *hash)
 		}
 		free(p);
 	}
+
+	/* Possibly hash GCC_COLORS (for color diagnostics). */
+	if (compiler_is_gcc(args)) {
+		const char *gcc_colors = getenv("GCC_COLORS");
+		if (gcc_colors) {
+			hash_delimiter(hash, "gcccolors");
+			hash_string(hash, gcc_colors);
+		}
+	}
 }
 
 /*
@@ -1127,6 +1241,18 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 			continue;
 		}
 
+		/* -Wl,... doesn't affect compilation. */
+		if (str_startswith(args->argv[i], "-Wl,")) {
+			continue;
+		}
+
+		/* The -fdebug-prefix-map option may be used in combination with
+		   CCACHE_BASEDIR to reuse results across different directories. Skip it
+		   from hashing. */
+		if (str_startswith(args->argv[i], "-fdebug-prefix-map=")) {
+			continue;
+		}
+
 		/* When using the preprocessor, some arguments don't contribute
 		   to the hash. The theory is that these arguments will change
 		   the output of -E if they are going to have any effect at
@@ -1138,6 +1264,36 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 				continue;
 			}
 			if (compopt_short(compopt_affects_cpp, args->argv[i])) {
+				continue;
+			}
+		}
+
+		/* If we're generating dependencies, we make sure to skip the
+		 * filename of the dependency file, since it doesn't impact the
+		 * output.
+		 */
+		if (generating_dependencies) {
+			if (str_startswith(args->argv[i], "-Wp,")) {
+				if (str_startswith(args->argv[i], "-Wp,-MD,")
+						&& !strchr(args->argv[i] + 8, ',')) {
+					hash_string_length(hash, args->argv[i], 8);
+					continue;
+				} else if (str_startswith(args->argv[i], "-Wp,-MMD,")
+						&& !strchr(args->argv[i] + 9, ',')) {
+					hash_string_length(hash, args->argv[i], 9);
+					continue;
+				}
+			} else if (str_startswith(args->argv[i], "-MF")) {
+				bool separate_argument = (strlen(args->argv[i]) == 3);
+
+				/* In either case, hash the "-MF" part. */
+				hash_string_length(hash, args->argv[i], 3);
+
+				if (separate_argument) {
+					/* Next argument is dependency name, so
+					 * skip it. */
+					i++;
+				}
 				continue;
 			}
 		}
@@ -1198,7 +1354,6 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 	 * artifacts will be produced in the wrong place.
 	 */
 	if (profile_generate) {
-		output_to_real_object_first = true;
 		if (!profile_dir) {
 			profile_dir = get_cwd();
 		}
@@ -1210,7 +1365,6 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 		/* Calculate gcda name */
 		char *gcda_name;
 		char *base_name;
-		output_to_real_object_first = true;
 		base_name = remove_extension(output_obj);
 		if (!profile_dir) {
 			profile_dir = get_cwd();
@@ -1235,7 +1389,7 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 			"OBJCPLUS_INCLUDE_PATH", /* clang */
 			NULL
 		};
-		for (p = envvars; *p != NULL; ++p) {
+		for (p = envvars; *p; ++p) {
 			char *v = getenv(*p);
 			if (v) {
 				hash_delimiter(hash, *p);
@@ -1292,7 +1446,6 @@ static void
 from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 {
 	int fd_stderr;
-	int ret;
 	struct stat st;
 	bool produce_dep_file;
 
@@ -1314,6 +1467,16 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	}
 
 	/*
+	 * Occasionally, e.g. on hard reset, our cache ends up as just filesystem
+	 * meta-data with no content catch an easy case of this.
+	 */
+	if (st.st_size == 0) {
+		cc_log("Invalid (empty) object file %s in cache", cached_obj);
+		x_unlink(cached_obj);
+		return;
+	}
+
+	/*
 	 * (If mode != FROMCACHE_DIRECT_MODE, the dependency file is created by
 	 * gcc.)
 	 */
@@ -1325,109 +1488,15 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 		return;
 	}
 
-	if (str_eq(output_obj, "/dev/null")) {
-		ret = 0;
-	} else {
-		x_unlink(output_obj);
-		/* only make a hardlink if the cache file is uncompressed */
-		if (conf->hard_link && !file_is_compressed(cached_obj)) {
-			ret = link(cached_obj, output_obj);
-		} else {
-			ret = copy_file(cached_obj, output_obj, 0);
-		}
+	if (!str_eq(output_obj, "/dev/null")) {
+		get_file_from_cache(cached_obj, output_obj);
 	}
-
-	if (ret == -1) {
-		if (errno == ENOENT) {
-			/* Someone removed the file just before we began copying? */
-			cc_log("Object file %s just disappeared from cache", cached_obj);
-			stats_update(STATS_MISSING);
-		} else {
-			cc_log("Failed to copy/link %s to %s: %s",
-			       cached_obj, output_obj, strerror(errno));
-			stats_update(STATS_ERROR);
-			failed();
-		}
-		x_unlink(output_obj);
-		x_unlink(cached_stderr);
-		x_unlink(cached_obj);
-		x_unlink(cached_dep);
-		x_unlink(cached_dia);
-		return;
-	} else {
-		cc_log("Created %s from %s", output_obj, cached_obj);
-	}
-
 	if (produce_dep_file) {
-		x_unlink(output_dep);
-		/* only make a hardlink if the cache file is uncompressed */
-		if (conf->hard_link && !file_is_compressed(cached_dep)) {
-			ret = link(cached_dep, output_dep);
-		} else {
-			ret = copy_file(cached_dep, output_dep, 0);
-		}
-		if (ret == -1) {
-			if (errno == ENOENT) {
-				/*
-				 * Someone removed the file just before we
-				 * began copying?
-				 */
-				cc_log("Dependency file %s just disappeared from cache", output_obj);
-				stats_update(STATS_MISSING);
-			} else {
-				cc_log("Failed to copy/link %s to %s: %s",
-				       cached_dep, output_dep, strerror(errno));
-				stats_update(STATS_ERROR);
-				failed();
-			}
-			x_unlink(output_obj);
-			x_unlink(output_dep);
-			x_unlink(cached_stderr);
-			x_unlink(cached_obj);
-			x_unlink(cached_dep);
-			x_unlink(cached_dia);
-			return;
-		} else {
-			cc_log("Created %s from %s", output_dep, cached_dep);
-		}
+		get_file_from_cache(cached_dep, output_dep);
 	}
-
 	if (output_dia) {
-		x_unlink(output_dia);
-		/* only make a hardlink if the cache file is uncompressed */
-		if (conf->hard_link && !file_is_compressed(cached_dia)) {
-			ret = link(cached_dia, output_dia);
-		} else {
-			ret = copy_file(cached_dia, output_dia, 0);
-		}
-
-		if (ret == -1) {
-			if (errno == ENOENT) {
-				/*
-				 * Someone removed the file just before we
-				 * began copying?
-				 */
-				cc_log("Diagnostic file %s just disappeared from cache", output_dia);
-				stats_update(STATS_MISSING);
-			} else {
-				cc_log("Failed to copy/link %s to %s: %s",
-				       cached_dia, output_dia, strerror(errno));
-				stats_update(STATS_ERROR);
-				failed();
-			}
-			x_unlink(output_obj);
-			x_unlink(output_dep);
-			x_unlink(output_dia);
-			x_unlink(cached_stderr);
-			x_unlink(cached_obj);
-			x_unlink(cached_dep);
-			x_unlink(cached_dia);
-			return;
-		} else {
-			cc_log("Created %s from %s", output_dia, cached_dia);
-		}
+		get_file_from_cache(cached_dia, output_dia);
 	}
-
 
 	/* Update modification timestamps to save files from LRU cleanup.
 	   Also gives files a sensible mtime when hard-linking. */
@@ -1441,17 +1510,7 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	}
 
 	if (generating_dependencies && mode != FROMCACHE_DIRECT_MODE) {
-		/* Store the dependency file in the cache. */
-		ret = copy_file(output_dep, cached_dep, conf->compression);
-		if (ret == -1) {
-			cc_log("Failed to copy %s to %s: %s", output_dep, cached_dep,
-			       strerror(errno));
-			/* Continue despite the error. */
-		} else {
-			cc_log("Stored in cache: %s", cached_dep);
-			stat(cached_dep, &st);
-			stats_update_size(STATS_NONE, file_size(&st), 1);
-		}
+		put_file_in_cache(output_dep, cached_dep);
 	}
 
 	/* Send the stderr, if any. */
@@ -1465,7 +1524,8 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	if (conf->direct_mode
 	    && put_object_in_manifest
 	    && included_files
-	    && !conf->read_only) {
+	    && !conf->read_only
+	    && !conf->read_only_direct) {
 		struct stat st;
 		size_t old_size = 0; /* in bytes */
 		if (stat(manifest_path, &st) == 0) {
@@ -1475,9 +1535,7 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 			cc_log("Added object file hash to %s", manifest_path);
 			update_mtime(manifest_path);
 			stat(manifest_path, &st);
-			stats_update_size(STATS_NONE,
-			                  (file_size(&st) - old_size),
-			                  old_size == 0 ? 1 : 0);
+			stats_update_size(file_size(&st) - old_size, old_size == 0 ? 1 : 0);
 		} else {
 			cc_log("Failed to add object file hash to %s", manifest_path);
 		}
@@ -1486,12 +1544,12 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	/* log the cache hit */
 	switch (mode) {
 	case FROMCACHE_DIRECT_MODE:
-		cc_log("Succeded getting cached result");
+		cc_log("Succeeded getting cached result");
 		stats_update(STATS_CACHEHIT_DIR);
 		break;
 
 	case FROMCACHE_CPP_MODE:
-		cc_log("Succeded getting cached result");
+		cc_log("Succeeded getting cached result");
 		stats_update(STATS_CACHEHIT_CPP);
 		break;
 
@@ -1899,6 +1957,13 @@ is_precompiled_header(const char *path)
 	       || str_eq(get_extension(path), ".pth");
 }
 
+static bool
+color_output_possible(void)
+{
+	const char *term_env = getenv("TERM");
+	return isatty(STDERR_FILENO) && term_env && strcasecmp(term_env, "DUMB") != 0;
+}
+
 /*
  * Process the compiler options into options suitable for passing to the
  * preprocessor and the real compiler. The preprocessor options don't include
@@ -1927,6 +1992,7 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 	int argc;
 	char **argv;
 	bool result = true;
+	bool found_color_diagnostics = false;
 
 	expanded_args = args_copy(args);
 	stripped_args = args_init(0, NULL);
@@ -1959,10 +2025,13 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 		}
 
 		/* Handle "@file" argument. */
-		if (str_startswith(argv[i], "@")) {
+		if (str_startswith(argv[i], "@") || str_startswith(argv[i], "-@")) {
 			char *argpath = argv[i] + 1;
 			struct args *file_args;
 
+			if (argpath[-1] == '-') {
+				++argpath;
+			}
 			file_args = args_init_from_gcc_atfile(argpath);
 			if (!file_args) {
 				cc_log("Couldn't read arg file %s", argpath);
@@ -2280,6 +2349,26 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 			free(arg);
 		}
 
+		if (str_eq(argv[i], "-fcolor-diagnostics")
+		    || str_eq(argv[i], "-fno-color-diagnostics")
+		    || str_eq(argv[i], "-fdiagnostics-color")
+		    || str_eq(argv[i], "-fdiagnostics-color=always")
+		    || str_eq(argv[i], "-fno-diagnostics-color")
+		    || str_eq(argv[i], "-fdiagnostics-color=never")) {
+			args_add(stripped_args, argv[i]);
+			found_color_diagnostics = true;
+			continue;
+		}
+		if (str_eq(argv[i], "-fdiagnostics-color=auto")) {
+			if (color_output_possible()) {
+				/* Output is redirected, so color output must be forced. */
+				args_add(stripped_args, "-fdiagnostics-color=always");
+				cc_log("Automatically forcing colors");
+			}
+			found_color_diagnostics = true;
+			continue;
+		}
+
 		/*
 		 * Options taking an argument that we may want to rewrite to relative paths
 		 * to get better hit rate. A secondary effect is that paths in the standard
@@ -2474,7 +2563,15 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 	}
 
 	output_is_precompiled_header =
-		actual_language && strstr(actual_language, "-header") != NULL;
+		actual_language && strstr(actual_language, "-header");
+
+	if (output_is_precompiled_header && !(conf->sloppiness & SLOPPY_PCH_DEFINES)) {
+		cc_log("You have to specify \"pch_defines,time_macros\" sloppiness when"
+		       " creating precompiled headers");
+		stats_update(STATS_CANTUSEPCH);
+		result = false;
+		goto out;
+	}
 
 	if (!found_c_opt) {
 		if (output_is_precompiled_header) {
@@ -2566,6 +2663,28 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 	if (explicit_language) {
 		args_add(cpp_args, "-x");
 		args_add(cpp_args, explicit_language);
+	}
+
+	/*
+	 * Since output is redirected, compilers will not color their output by
+	 * default, so force it explicitly if it would be otherwise done.
+	 */
+	if (!found_color_diagnostics && color_output_possible()) {
+		if (compiler_is_clang(args)) {
+			args_add(stripped_args, "-fcolor-diagnostics");
+			cc_log("Automatically enabling colors");
+		} else if (compiler_is_gcc(args)) {
+			/*
+			 * GCC has it since 4.9, but that'd require detecting what GCC version is
+			 * used for the actual compile. However it requires also GCC_COLORS to be
+			 * set (and not empty), so use that for detecting if GCC would use
+			 * colors.
+			 */
+			if (getenv("GCC_COLORS") && getenv("GCC_COLORS")[0] != '\0') {
+				args_add(stripped_args, "-fdiagnostics-color");
+				cc_log("Automatically enabling colors");
+			}
+		}
 	}
 
 	/*
@@ -2697,9 +2816,15 @@ initialize(void)
 			free(errmsg);
 		}
 
+		if (str_eq(conf->cache_dir, "")) {
+			fatal("configuration setting \"cache_dir\" must not be the empty string");
+		}
 		if ((p = getenv("CCACHE_DIR"))) {
 			free(conf->cache_dir);
 			conf->cache_dir = strdup(p);
+		}
+		if (str_eq(conf->cache_dir, "")) {
+			fatal("CCACHE_DIR must not be the empty string");
 		}
 
 		primary_config_path = format("%s/ccache.conf", conf->cache_dir);
@@ -2714,6 +2839,10 @@ initialize(void)
 
 	if (!conf_update_from_environment(conf, &errmsg)) {
 		fatal("%s", errmsg);
+	}
+
+	if (conf->disable) {
+		should_create_initial_config = false;
 	}
 
 	if (should_create_initial_config) {
@@ -2731,7 +2860,7 @@ initialize(void)
 #endif
 	exitfn_init();
 	exitfn_add_nullary(stats_flush);
-	exitfn_add_nullary(clean_up_tmp_files);
+	exitfn_add_nullary(clean_up_pending_tmp_files);
 
 	cc_log("=== CCACHE %s STARTED =========================================",
 	       CCACHE_VERSION);
@@ -2739,8 +2868,6 @@ initialize(void)
 	if (conf->umask != UINT_MAX) {
 		umask(conf->umask);
 	}
-
-	current_working_dir = get_cwd();
 }
 
 /* Reset the global state. Used by the test suite. */
@@ -2781,6 +2908,7 @@ cc_reset(void)
 #endif
 
 	initialize();
+	conf = conf_create();
 }
 
 /* Make a copy of stderr that will not be cached, so things like
@@ -2835,6 +2963,16 @@ ccache(int argc, char *argv[])
 	initialize();
 	find_compiler(argv);
 
+#ifndef _WIN32
+	signal(SIGHUP, signal_handler);
+#endif
+	signal(SIGINT, signal_handler);
+	signal(SIGTERM, signal_handler);
+
+	if (str_eq(conf->temporary_dir, "")) {
+		clean_up_internal_tempdir();
+	}
+
 	if (!str_eq(conf->log_file, "")) {
 		conf_print_items(conf, configuration_logger, NULL);
 	}
@@ -2848,7 +2986,7 @@ ccache(int argc, char *argv[])
 
 	cc_log_argv("Command line: ", argv);
 	cc_log("Hostname: %s", get_hostname());
-	cc_log("Working directory: %s", current_working_dir);
+	cc_log("Working directory: %s", get_current_working_dir());
 
 	if (conf->unify) {
 		cc_log("Direct mode disabled because unify mode is enabled");
@@ -2897,6 +3035,11 @@ ccache(int argc, char *argv[])
 			/* Add object to manifest later. */
 			put_object_in_manifest = true;
 		}
+	}
+
+	if (conf->read_only_direct) {
+		cc_log("Read-only direct mode; running real compiler");
+		failed();
 	}
 
 	/*

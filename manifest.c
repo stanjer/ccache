@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2013 Joel Rosdahl
+ * Copyright (C) 2009-2014 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -68,6 +68,7 @@
 
 static const uint32_t MAGIC = 0x63436d46U;
 static const uint32_t MAX_MANIFEST_ENTRIES = 100;
+static const uint32_t MAX_MANIFEST_FILE_INFO_ENTRIES = 10000;
 
 #define ccache_static_assert(e) \
 	do { enum { ccache_static_assert__ = 1/(e) }; } while (false)
@@ -145,7 +146,7 @@ file_infos_equal(void *key1, void *key2)
 static void
 free_manifest(struct manifest *mf)
 {
-	uint16_t i;
+	uint32_t i;
 	for (i = 0; i < mf->n_files; i++) {
 		free(mf->files[i]);
 	}
@@ -238,7 +239,7 @@ static struct manifest *
 read_manifest(gzFile f)
 {
 	struct manifest *mf;
-	uint16_t i, j;
+	uint32_t i, j;
 	uint32_t magic;
 
 	mf = create_empty_manifest();
@@ -336,7 +337,7 @@ error:
 static int
 write_manifest(gzFile f, const struct manifest *mf)
 {
-	uint16_t i, j;
+	uint32_t i, j;
 
 	WRITE_INT(4, MAGIC);
 	WRITE_INT(1, MANIFEST_VERSION);
@@ -724,14 +725,19 @@ manifest_put(const char *manifest_path, struct file_hash *object_hash,
 		       MAX_MANIFEST_ENTRIES);
 		free_manifest(mf);
 		mf = create_empty_manifest();
+	} else if (mf->n_file_infos > MAX_MANIFEST_FILE_INFO_ENTRIES) {
+		/* Rarely, file_info entries can grow large in pathological cases where
+		 * many included files change, but the main file does not. This also puts
+		 * an upper bound on the number of file_info entries.
+		 */
+		cc_log("More than %u file_info entries in manifest file; discarding",
+		       MAX_MANIFEST_FILE_INFO_ENTRIES);
+		free_manifest(mf);
+		mf = create_empty_manifest();
 	}
 
-	tmp_file = format("%s.tmp.%s", manifest_path, tmp_string());
-	fd2 = safe_create_wronly(tmp_file);
-	if (fd2 == -1) {
-		cc_log("Failed to open %s", tmp_file);
-		goto out;
-	}
+	tmp_file = format("%s.tmp", manifest_path);
+	fd2 = create_tmp_fd(&tmp_file);
 	f2 = gzdopen(fd2, "wb");
 	if (!f2) {
 		cc_log("Failed to gzdopen %s", tmp_file);

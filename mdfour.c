@@ -130,7 +130,9 @@ void mdfour_tail(const unsigned char *in, size_t n)
 
 	b = m->totalN * 8;
 
-	if (n) memcpy(buf, in, n);
+	if (n) {
+		memcpy(buf, in, n);
+	}
 	buf[n] = 0x80;
 
 	if (n <= 55) {
@@ -161,7 +163,7 @@ mdfour_update(struct mdfour *md, const unsigned char *in, size_t n)
 
 	m = md;
 
-	if (in == NULL) {
+	if (!in) {
 		if (!md->finalized) {
 			mdfour_tail(md->tail, md->tail_len);
 			md->finalized = 1;
@@ -171,7 +173,9 @@ mdfour_update(struct mdfour *md, const unsigned char *in, size_t n)
 
 	if (md->tail_len) {
 		size_t len = 64 - md->tail_len;
-		if (len > n) len = n;
+		if (len > n) {
+			len = n;
+		}
 		memcpy(md->tail+md->tail_len, in, len);
 		md->tail_len += len;
 		n -= len;

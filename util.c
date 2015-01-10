@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2002 Andrew Tridgell
- * Copyright (C) 2009-2013 Joel Rosdahl
+ * Copyright (C) 2009-2014 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -74,7 +74,7 @@ log_prefix(bool log_updated_time)
 	if (log_updated_time) {
 		gettimeofday(&tv, NULL);
 #ifdef __MINGW64_VERSION_MAJOR
-		tm = _localtime32(&tv.tv_sec);
+		tm = localtime((time_t*)&tv.tv_sec);
 #else
 		tm = localtime(&tv.tv_sec);
 #endif
@@ -117,15 +117,6 @@ vlog(const char *format, va_list ap, bool log_updated_time)
 	log_prefix(log_updated_time);
 	vfprintf(logfile, format, ap);
 	fprintf(logfile, "\n");
-}
-
-/*
- * Write a message to the log file (adding a newline) and flush.
- */
-void
-cc_vlog(const char *format, va_list ap)
-{
-	vlog(format, ap, true);
 }
 
 /*
@@ -239,7 +230,7 @@ mkstemp(char *template)
 int
 copy_file(const char *src, const char *dest, int compress_level)
 {
-	int fd_in = -1, fd_out = -1;
+	int fd_in, fd_out;
 	gzFile gz_in = NULL, gz_out = NULL;
 	char buf[10240];
 	int n, written;
@@ -250,15 +241,9 @@ copy_file(const char *src, const char *dest, int compress_level)
 	struct stat st;
 	int errnum;
 
-	tmp_name = format("%s.%s.XXXXXX", dest, tmp_string());
-
 	/* open destination file */
-	fd_out = mkstemp(tmp_name);
-	if (fd_out == -1) {
-		cc_log("mkstemp error: %s", strerror(errno));
-		goto error;
-	}
-
+	tmp_name = x_strdup(dest);
+	fd_out = create_tmp_fd(&tmp_name);
 	cc_log("Copying %s to %s via %s (%scompressed)",
 	       src, dest, tmp_name, compress_level > 0 ? "" : "un");
 
@@ -535,8 +520,8 @@ get_hostname(void)
 }
 
 /*
- * Return a string to be used to distinguish temporary files. Also tries to
- * cope with NFS by adding the local hostname.
+ * Return a string to be passed to mkstemp to create a temporary file. Also
+ * tries to cope with NFS by adding the local hostname.
  */
 const char *
 tmp_string(void)
@@ -544,7 +529,7 @@ tmp_string(void)
 	static char *ret;
 
 	if (!ret) {
-		ret = format("%s.%u", get_hostname(), (unsigned)getpid());
+		ret = format("%s.%u.XXXXXX", get_hostname(), (unsigned)getpid());
 	}
 
 	return ret;
@@ -591,12 +576,16 @@ create_cachedirtag(const char *dir)
 		goto error;
 	}
 	f = fopen(filename, "w");
-	if (!f) goto error;
+	if (!f) {
+		goto error;
+	}
 	if (fwrite(CACHEDIR_TAG, sizeof(CACHEDIR_TAG)-1, 1, f) != 1) {
 		fclose(f);
 		goto error;
 	}
-	if (fclose(f)) goto error;
+	if (fclose(f)) {
+		goto error;
+	}
 success:
 	free(filename);
 	return 0;
@@ -618,7 +607,9 @@ format(const char *format, ...)
 	}
 	va_end(ap);
 
-	if (!*ptr) fatal("Internal error in format");
+	if (!*ptr) {
+		fatal("Internal error in format");
+	}
 	return ptr;
 }
 
@@ -713,7 +704,9 @@ void *
 x_realloc(void *ptr, size_t size)
 {
 	void *p2;
-	if (!ptr) return x_malloc(size);
+	if (!ptr) {
+		return x_malloc(size);
+	}
 	p2 = realloc(ptr, size);
 	if (!p2) {
 		fatal("x_realloc: Could not allocate %lu bytes", (unsigned long)size);
@@ -748,7 +741,9 @@ reformat(char **ptr, const char *format, ...)
 	}
 	va_end(ap);
 
-	if (!ptr) fatal("Out of memory in reformat");
+	if (!ptr) {
+		fatal("Out of memory in reformat");
+	}
 	if (saved) {
 		free(saved);
 	}
@@ -764,16 +759,24 @@ traverse(const char *dir, void (*fn)(const char *, struct stat *))
 	struct dirent *de;
 
 	d = opendir(dir);
-	if (!d) return;
+	if (!d) {
+		return;
+	}
 
 	while ((de = readdir(d))) {
 		char *fname;
 		struct stat st;
 
-		if (str_eq(de->d_name, ".")) continue;
-		if (str_eq(de->d_name, "..")) continue;
+		if (str_eq(de->d_name, ".")) {
+			continue;
+		}
+		if (str_eq(de->d_name, "..")) {
+			continue;
+		}
 
-		if (strlen(de->d_name) == 0) continue;
+		if (strlen(de->d_name) == 0) {
+			continue;
+		}
 
 		fname = format("%s/%s", dir, de->d_name);
 		if (lstat(fname, &st)) {
@@ -802,10 +805,14 @@ basename(const char *path)
 {
 	char *p;
 	p = strrchr(path, '/');
-	if (p) path = p + 1;
+	if (p) {
+		path = p + 1;
+	}
 #ifdef _WIN32
 	p = strrchr(path, '\\');
-	if (p) path = p + 1;
+	if (p) {
+		path = p + 1;
+	}
 #endif
 
 	return x_strdup(path);
@@ -816,22 +823,27 @@ char *
 dirname(const char *path)
 {
 	char *p;
-	char *p2 = NULL;
+#ifdef _WIN32
+	char *p2;
+#endif
 	char *s;
 	s = x_strdup(path);
 	p = strrchr(s, '/');
 #ifdef _WIN32
 	p2 = strrchr(s, '\\');
-#endif
-	if (p < p2)
+	if (!p || (p2 && p < p2)) {
 		p = p2;
-	if (p) {
-		*p = 0;
-		return s;
-	} else {
-		free(s);
-		return x_strdup(".");
 	}
+#endif
+	if (!p) {
+		free(s);
+		s = x_strdup(".");
+	} else if (p == s) {
+		*(p + 1) = 0;
+	} else {
+		*p = 0;
+	}
+	return s;
 }
 
 /*
@@ -880,25 +892,6 @@ file_size(struct stat *st)
 	}
 	return size;
 #endif
-}
-
-/*
- * Create a file for writing. Creates parent directories if they don't exist.
- */
-int
-safe_create_wronly(const char *fname)
-{
-	int fd = open(fname, O_WRONLY | O_CREAT | O_EXCL | O_BINARY, 0666);
-	if (fd == -1 && errno == ENOENT) {
-		/*
-		 * Only make sure parent directories exist when have failed to open the
-		 * file -- this saves stat() calls.
-		 */
-		if (create_parent_dirs(fname) == 0) {
-			fd = open(fname, O_RDWR | O_CREAT | O_EXCL | O_BINARY, 0666);
-		}
-	}
-	return fd;
 }
 
 /* Format a size as a human-readable string. Caller frees. */
@@ -1069,18 +1062,53 @@ strtok_r(char *str, const char *delim, char **saveptr)
 }
 #endif
 
-/* create an empty file */
+/*
+ * Create an empty temporary file. *fname will be reallocated and set to the
+ * resulting filename. Returns an open file descriptor to the file.
+ */
 int
-create_empty_file(const char *fname)
+create_tmp_fd(char **fname)
 {
-	int fd;
-
-	fd = open(fname, O_WRONLY|O_CREAT|O_TRUNC|O_EXCL|O_BINARY, 0666);
-	if (fd == -1) {
-		return -1;
+	char *template = format("%s.%s", *fname, tmp_string());
+	int fd = mkstemp(template);
+	if (fd == -1 && errno == ENOENT) {
+		if (create_parent_dirs(template) != 0) {
+			fatal("Failed to create directory %s: %s",
+			      dirname(template), strerror(errno));
+		}
+		reformat(&template, "%s.%s", *fname, tmp_string());
+		fd = mkstemp(template);
 	}
-	close(fd);
-	return 0;
+	if (fd == -1) {
+		fatal("Failed to create file %s: %s", template, strerror(errno));
+	}
+	free(*fname);
+	*fname = template;
+	return fd;
+}
+
+/*
+ * Create an empty temporary file. *fname will be reallocated and set to the
+ * resulting filename. Returns an open FILE*.
+ */
+FILE *
+create_tmp_file(char **fname, const char *mode)
+{
+	FILE *file = fdopen(create_tmp_fd(fname), mode);
+	if (!file) {
+		fatal("Failed to create file %s: %s", *fname, strerror(errno));
+	}
+	return file;
+}
+
+/*
+ * Create an empty temporary file. *fname will be reallocated and set to the
+ * resulting filename.
+ */
+void
+create_empty_tmp_file(char **fname)
+{
+	close(create_tmp_fd(fname));
 }
 
 /*
@@ -1177,23 +1205,13 @@ common_dir_prefix_length(const char *s1, const char *s2)
 		++p1;
 		++p2;
 	}
-	if (*p2 == '/') {
-		/* s2 starts with "s1/". */
-		return p1 - s1;
-	}
-	if (!*p2) {
-		/* s2 is equal to s1. */
-		if (p2 == s2 + 1) {
-			/* Special case for s1 and s2 both being "/". */
-			return 0;
-		} else {
-			return p1 - s1;
-		}
-	}
-	/* Compute the common directory prefix */
-	while (p1 > s1 && *p1 != '/') {
+	while ((*p1 && *p1 != '/') || (*p2 && *p2 != '/')) {
 		p1--;
 		p2--;
+	}
+	if (!*p1 && !*p2 && p2 == s2 + 1) {
+		/* Special case for s1 and s2 both being "/". */
+		return 0;
 	}
 	return p1 - s1;
 }
@@ -1319,7 +1337,7 @@ x_unlink(const char *path)
 	 * file. We don't care if the temp file is trashed, so it's always safe to
 	 * unlink it first.
 	 */
-	char *tmp_name = format("%s.%s.rmXXXXXX", path, tmp_string());
+	char *tmp_name = format("%s.rm.%s", path, tmp_string());
 	int result = 0;
 	cc_log("Unlink %s via %s", path, tmp_name);
 	if (x_rename(path, tmp_name) == -1) {
@@ -1327,7 +1345,10 @@ x_unlink(const char *path)
 		goto out;
 	}
 	if (unlink(tmp_name) == -1) {
-		result = -1;
+		/* If it was released in a race, that's OK. */
+		if (errno != ENOENT) {
+			result = -1;
+		}
 	}
 out:
 	free(tmp_name);

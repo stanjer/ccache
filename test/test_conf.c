@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2011-2013 Joel Rosdahl
+ * Copyright (C) 2011-2014 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -20,7 +20,7 @@
 #include "test/framework.h"
 #include "test/util.h"
 
-#define N_CONFIG_ITEMS 27
+#define N_CONFIG_ITEMS 28
 static struct {
 	char *descr;
 	const char *origin;
@@ -70,6 +70,7 @@ TEST(conf_create)
 	CHECK_STR_EQ("", conf->path);
 	CHECK_STR_EQ("", conf->prefix_command);
 	CHECK(!conf->read_only);
+	CHECK(!conf->read_only_direct);
 	CHECK(!conf->recache);
 	CHECK(!conf->run_second_cpp);
 	CHECK_INT_EQ(0, conf->sloppiness);
@@ -112,9 +113,10 @@ TEST(conf_read_valid_config)
 		"path = $USER.x\n"
 		"prefix_command = x$USER\n"
 		"read_only = true\n"
+		"read_only_direct = true\n"
 		"recache = true\n"
 		"run_second_cpp = true\n"
-		"sloppiness =     file_macro   ,time_macros,  include_file_mtime,include_file_ctime,file_stat_matches  \n"
+		"sloppiness =     file_macro   ,time_macros,  include_file_mtime,include_file_ctime,file_stat_matches  pch_defines  \n"
 		"stats = false\n"
 		"temporary_dir = ${USER}_foo\n"
 		"umask = 777\n"
@@ -141,11 +143,12 @@ TEST(conf_read_valid_config)
 	CHECK_STR_EQ_FREE1(format("%s.x", user), conf->path);
 	CHECK_STR_EQ_FREE1(format("x%s", user), conf->prefix_command);
 	CHECK(conf->read_only);
+	CHECK(conf->read_only_direct);
 	CHECK(conf->recache);
 	CHECK(conf->run_second_cpp);
 	CHECK_INT_EQ(SLOPPY_INCLUDE_FILE_MTIME|SLOPPY_INCLUDE_FILE_CTIME|
 	             SLOPPY_FILE_MACRO|SLOPPY_TIME_MACROS|
-	             SLOPPY_FILE_STAT_MATCHES,
+	             SLOPPY_FILE_STAT_MATCHES|SLOPPY_PCH_DEFINES,
 	             conf->sloppiness);
 	CHECK(!conf->stats);
 	CHECK_STR_EQ_FREE1(format("%s_foo", user), conf->temporary_dir);
@@ -361,6 +364,7 @@ TEST(conf_print_items)
 		true,
 		true,
 		true,
+		true,
 		SLOPPY_FILE_MACRO|SLOPPY_INCLUDE_FILE_MTIME|
 		  SLOPPY_INCLUDE_FILE_CTIME|SLOPPY_TIME_MACROS|
 		  SLOPPY_FILE_STAT_MATCHES,
@@ -399,6 +403,7 @@ TEST(conf_print_items)
 	CHECK_STR_EQ("path = p", received_conf_items[n++].descr);
 	CHECK_STR_EQ("prefix_command = pc", received_conf_items[n++].descr);
 	CHECK_STR_EQ("read_only = true", received_conf_items[n++].descr);
+	CHECK_STR_EQ("read_only_direct = true", received_conf_items[n++].descr);
 	CHECK_STR_EQ("recache = true", received_conf_items[n++].descr);
 	CHECK_STR_EQ("run_second_cpp = true", received_conf_items[n++].descr);
 	CHECK_STR_EQ("sloppiness = file_macro, include_file_mtime,"

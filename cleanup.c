@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2002-2006 Andrew Tridgell
- * Copyright (C) 2009-2011 Joel Rosdahl
+ * Copyright (C) 2009-2014 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -58,7 +58,9 @@ traverse_fn(const char *fname, struct stat *st)
 {
 	char *p;
 
-	if (!S_ISREG(st->st_mode)) return;
+	if (!S_ISREG(st->st_mode)) {
+		return;
+	}
 
 	p = basename(fname);
 	if (str_eq(p, "stats")) {
@@ -70,7 +72,7 @@ traverse_fn(const char *fname, struct stat *st)
 		goto out;
 	}
 
-	if (strstr(p, ".tmp.") != NULL) {
+	if (strstr(p, ".tmp.")) {
 		/* delete any tmp files older than 1 hour */
 		if (st->st_mtime + 3600 < time(NULL)) {
 			x_unlink(fname);
@@ -233,7 +235,9 @@ static void wipe_fn(const char *fname, struct stat *st)
 {
 	char *p;
 
-	if (!S_ISREG(st->st_mode)) return;
+	if (!S_ISREG(st->st_mode)) {
+		return;
+	}
 
 	p = basename(fname);
 	if (str_eq(p, "stats")) {

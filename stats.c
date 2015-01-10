@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2002-2004 Andrew Tridgell
- * Copyright (C) 2009-2012 Joel Rosdahl
+ * Copyright (C) 2009-2014 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -131,17 +131,8 @@ stats_write(const char *path, struct counters *counters)
 	char *tmp_file;
 	FILE *f;
 
-	tmp_file = format("%s.tmp.%s", path, tmp_string());
-	f = fopen(tmp_file, "wb");
-	if (!f && errno == ENOENT) {
-		if (create_parent_dirs(path) == 0) {
-			f = fopen(tmp_file, "wb");
-		}
-	}
-	if (!f) {
-		cc_log("Failed to open %s", tmp_file);
-		goto end;
-	}
+	tmp_file = format("%s.tmp", path);
+	f = create_tmp_file(&tmp_file, "wb");
 	for (i = 0; i < counters->size; i++) {
 		if (fprintf(f, "%u\n", counters->data[i]) < 0) {
 			fatal("Failed to write to %s", tmp_file);
@@ -149,8 +140,6 @@ stats_write(const char *path, struct counters *counters)
 	}
 	fclose(f);
 	x_rename(tmp_file, path);
-
-end:
 	free(tmp_file);
 }
 
@@ -163,16 +152,13 @@ init_counter_updates(void)
 }
 
 /*
- * Update a statistics counter (unless it's STATS_NONE) and also record that a
- * number of bytes and files have been added to the cache. Size is in KiB.
+ * Record that a number of bytes and files have been added to the cache. Size
+ * is in KiB.
  */
 void
-stats_update_size(enum stats stat, uint64_t size, unsigned files)
+stats_update_size(uint64_t size, unsigned files)
 {
 	init_counter_updates();
-	if (stat != STATS_NONE) {
-		counter_updates->data[stat]++;
-	}
 	counter_updates->data[STATS_NUMFILES] += files;
 	counter_updates->data[STATS_TOTALSIZE] += size / 1024;
 }
@@ -205,7 +191,9 @@ stats_flush(void)
 		return;
 	}
 
-	init_counter_updates();
+	if (!counter_updates) {
+		return;
+	}
 
 	for (i = 0; i < STATS_END; ++i) {
 		if (counter_updates->data[i] > 0) {
@@ -213,7 +201,9 @@ stats_flush(void)
 			break;
 		}
 	}
-	if (!should_flush) return;
+	if (!should_flush) {
+		return;
+	}
 
 	if (!stats_file) {
 		char *stats_dir;
@@ -261,13 +251,17 @@ stats_flush(void)
 		cleanup_dir(conf, p);
 		free(p);
 	}
+
+	counters_free(counters);
 }
 
 /* update a normal stat */
 void
 stats_update(enum stats stat)
 {
-	stats_update_size(stat, 0, 0);
+	assert(stat > STATS_NONE && stat < STATS_END);
+	init_counter_updates();
+	counter_updates->data[stat]++;
 }
 
 /* Get the pending update of a counter value. */
@@ -355,7 +349,13 @@ stats_zero(void)
 
 	for (dir = 0; dir <= 0xF; dir++) {
 		struct counters *counters = counters_init(STATS_END);
+		struct stat st;
 		fname = format("%s/%1x/stats", conf->cache_dir, dir);
+		if (stat(fname, &st) != 0) {
+			/* No point in trying to reset the stats file if it doesn't exist. */
+			free(fname);
+			continue;
+		}
 		if (lockfile_acquire(fname, lock_staleness_limit)) {
 			stats_read(fname, counters);
 			for (i = 0; stats_info[i].message; i++) {
