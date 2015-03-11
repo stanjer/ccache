@@ -961,7 +961,7 @@ to_cache(struct args *args)
 	}
 
 #ifdef HAVE_LIBMEMCACHED
-	if (memcached_conf) {
+	if (memcached_conf && !getenv("CCACHE_MEMCACHE_READONLY")) {
 		cc_log("Storing %s in memcached", cached_key);
 		if (!read_file(cached_obj, 0, &data_obj, &size_obj)) {
 			data_obj = NULL;
