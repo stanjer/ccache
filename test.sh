@@ -703,8 +703,9 @@ memcached_suite() {
     CCACHE_COMPILE="$CCACHE $COMPILER"
     export CCACHE_MEMCACHED_CONF=--SERVER=localhost:22122
     memcached -p 22122 &
+    memcached_pid=$!
     base_tests
-    kill %1
+    kill $memcached_pid
     unset CCACHE_MEMCACHED_CONF
 }
 
