@@ -379,12 +379,6 @@ get_path_in_cache(const char *name, const char *suffix)
 	char *path;
 	char *result;
 
-#if HAVE_LIBMEMCACHED
-	/* in memcached mode, we create simpler keys */
-	if (conf->memcached_conf[0] != '\0' && strcmp(suffix,".manifest") !=0 )
-		return format("%s%s", name, suffix);
-#endif
-
 	path = x_strdup(conf->cache_dir);
 	for (i = 0; i < conf->cache_dir_levels; ++i) {
 		char *p = format("%s/%c", path, name[i]);
