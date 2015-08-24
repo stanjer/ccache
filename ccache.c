@@ -965,8 +965,10 @@ to_cache(struct args *args)
 			data_stderr = NULL;
 			size_stderr = 0;
 		}
-		data_dia = NULL;
-		size_dia = 0;
+		if (!read_file(cached_dia, 0, &data_dia, &size_dia)) {
+			data_dia = NULL;
+			size_dia = 0;
+		}
 		if (!read_file(cached_dep, 0, &data_dep, &size_dep)) {
 			data_dep = NULL;
 			size_dep = 0;
@@ -1498,7 +1500,8 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 			write_file(data_obj, cached_obj, size_obj);
 			if (size_stderr > 0)
 				write_file(data_stderr, cached_stderr, size_stderr);
-			(void) data_dia;
+			if (size_dia > 0)
+				write_file(data_dia, cached_dia, size_dia);
 			if (size_dep > 0)
 				write_file(data_dep, cached_dep, size_dep);
 			free(cache);
