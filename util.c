@@ -373,7 +373,7 @@ error:
 	return -1;
 }
 /* Write data to a fd. */
-int safe_write(int fd_out, const char * data, size_t length)
+int safe_write(int fd_out, const char *data, size_t length)
 {
 	size_t written = 0;
 	int ret;

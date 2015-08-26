@@ -970,8 +970,8 @@ to_cache(struct args *args)
 
 		if (data_obj)
 			memccached_store(cached_key,
-				data_obj, data_stderr, data_dia, data_dep,
-				size_obj, size_stderr, size_dia, size_dep);
+			                 data_obj, data_stderr, data_dia, data_dep,
+			                 size_obj, size_stderr, size_dia, size_dep);
 
 		free(data_obj);
 		free(data_stderr);
@@ -1487,8 +1487,8 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 		if (strlen(conf->memcached_conf) > 0) {
 			cc_log("Getting %s from memcached", cached_key);
 			cache = memccached_get(cached_key,
-				&data_obj, &data_stderr, &data_dia, &data_dep,
-				&size_obj, &size_stderr, &size_dia, &size_dep);
+			                       &data_obj, &data_stderr, &data_dia, &data_dep,
+			                       &size_obj, &size_stderr, &size_dia, &size_dep);
 		}
 		if (cache) {
 			write_file(data_obj, cached_obj, size_obj);
@@ -1499,8 +1499,7 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 			if (size_dep > 0)
 				write_file(data_dep, cached_dep, size_dep);
 			free(cache);
-		}
-		else
+		} else
 #endif
 		return;
 	}
