@@ -212,12 +212,6 @@ static struct pending_tmp_file *pending_tmp_files = NULL;
  */
 static const char HASH_PREFIX[] = "3";
 
-#ifdef HAVE_LIBMEMCACHED
-/*
- * Optional configuration for memcached. */
-static char *memcached_conf;
-#endif
-
 static void
 add_prefix(struct args *args)
 {
@@ -955,7 +949,7 @@ to_cache(struct args *args)
 	}
 
 #ifdef HAVE_LIBMEMCACHED
-	if (memcached_conf && !conf->read_only_memcached) {
+	if (strlen(conf->memcached_conf) > 0 && !conf->read_only_memcached) {
 		cc_log("Storing %s in memcached", cached_key);
 		if (!read_file(cached_obj, 0, &data_obj, &size_obj)) {
 			data_obj = NULL;
@@ -1490,7 +1484,7 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	if (stat(cached_obj, &st) != 0) {
 		cc_log("Object file %s not in cache", cached_obj);
 #if HAVE_LIBMEMCACHED
-		if (memcached_conf) {
+		if (strlen(conf->memcached_conf) > 0) {
 			cc_log("Getting %s from memcached", cached_key);
 			cache = memccached_get(cached_key,
 				&data_obj, &data_stderr, &data_dia, &data_dep,
@@ -2959,17 +2953,7 @@ ccache_main(int argc, char *argv[])
 	}
 	free(program_name);
 
-#ifdef HAVE_LIBMEMCACHED
-	memcached_conf = getenv("CCACHE_MEMCACHED_CONF");
-	if (memcached_conf != NULL) {
-		memccached_init(memcached_conf);
-	}
-#endif
-
 	ccache(argc, argv);
 
-#ifdef HAVE_LIBMEMCACHED
-	memccached_release();
-#endif
 	return 1;
 }
