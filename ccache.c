@@ -969,9 +969,9 @@ to_cache(struct args *args)
 		}
 
 		if (data_obj)
-			memccached_store(cached_key,
-			                 data_obj, data_stderr, data_dia, data_dep,
-			                 size_obj, size_stderr, size_dia, size_dep);
+			memccached_set(cached_key,
+			               data_obj, data_stderr, data_dia, data_dep,
+			               size_obj, size_stderr, size_dia, size_dep);
 
 		free(data_obj);
 		free(data_stderr);
@@ -1498,7 +1498,7 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 				write_file(data_dia, cached_dia, size_dia);
 			if (size_dep > 0)
 				write_file(data_dep, cached_dep, size_dep);
-			free(cache);
+			memccached_free(cache);
 		} else
 #endif
 		return;

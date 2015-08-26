@@ -182,15 +182,15 @@ static char *memccached_big_get(memcached_st *ptr,
     char *dep[dep_len];
 
  */
-int memccached_store(const char *key,
-                     const char *obj,
-                     const char *stderr,
-                     const char *dia,
-                     const char *dep,
-                     size_t obj_len,
-                     size_t stderr_len,
-                     size_t dia_len,
-                     size_t dep_len)
+int memccached_set(const char *key,
+                   const char *obj,
+                   const char *stderr,
+                   const char *dia,
+                   const char *dep,
+                   size_t obj_len,
+                   size_t stderr_len,
+                   size_t dia_len,
+                   size_t dep_len)
 {
 	size_t buf_len = 4 + 4*4 + obj_len + stderr_len + dia_len + dep_len;
 	char *buf = malloc(buf_len);

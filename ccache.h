@@ -128,16 +128,6 @@ int move_file(const char *src, const char *dest, int compress_level);
 int move_uncompressed_file(const char *src, const char *dest,
                            int compress_level);
 
-int memccached_init(char * conf);
-int memccached_store(const char *key,
-				   const char *out, const char *stderr, const char *dia, const char *dep,
-				   size_t out_len, size_t stderr_len, size_t dia_len, size_t dep_len);
-
-void* memccached_get(const char *key,
-					 char **out, char **stderr, char **dia, char **dep,
-					 size_t *out_len, size_t *stderr_len, size_t *dia_len, size_t *dep_len);
-int memccached_release(void);
-
 bool file_is_compressed(const char *filename);
 int create_dir(const char *dir);
 int create_parent_dirs(const char *path);
@@ -192,13 +182,13 @@ char *subst_env_in_string(const char *str, char **errmsg);
 /* ------------------------------------------------------------------------- */
 /* memccached.c */
 int memccached_init(char * conf);
-int memccached_store(const char *key,
-                                  const char *out, const char *stderr, const char *dia, const char *dep,
-                                  size_t out_len, size_t stderr_len, size_t dia_len, size_t dep_len);
-
+int memccached_set(const char *key,
+                   const char *out, const char *stderr, const char *dia, const char *dep,
+                   size_t out_len, size_t stderr_len, size_t dia_len, size_t dep_len);
 void* memccached_get(const char *key,
-                                        char **out, char **stderr, char **dia, char **dep,
-                                        size_t *out_len, size_t *stderr_len, size_t *dia_len, size_t *dep_len);
+                     char **out, char **stderr, char **dia, char **dep,
+                     size_t *out_len, size_t *stderr_len, size_t *dia_len, size_t *dep_len);
+void memccached_free(void *blob);
 int memccached_release(void);
 
 /* ------------------------------------------------------------------------- */
