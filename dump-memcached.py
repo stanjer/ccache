@@ -26,6 +26,7 @@ MEMCCACHE_MAGIC = 'CCH1'
 
 def get_blob(token):
     return token[4:4+struct.unpack('!I', val[0:4])[0]]
+MEMCCACHE_BIG = 'CCBM'
 
 """
 /* blob format for big values:
@@ -51,10 +52,10 @@ mc = memcache.Client([server], debug=1)
 
 key = sys.argv[1]
 val = mc.get(key)
-if val[0:4] == 'keys':
+if val[0:4] == MEMCCACHE_BIG:
    numkeys = struct.unpack('!I', val[4:8])[0]
    assert(struct.unpack('!I', val[8:12])[0] == 20)
-   assert(val[12:16] == 'size')
+   assert(struct.unpack('!I', val[12:16])[0] == 0)
    size = struct.unpack('!I', val[16:20])[0]
    val = val[20:]
    buf = ""

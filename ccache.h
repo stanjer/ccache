@@ -61,9 +61,6 @@ enum stats {
 #define SLOPPY_TIME_MACROS 8
 #define SLOPPY_PCH_DEFINES 16
 
-
-#define MEMCCACHE_MAGIC "CCH1"
-
 /*
  * Allow us to match files based on their stats (size, mtime, ctime), without
  * looking at their contents.

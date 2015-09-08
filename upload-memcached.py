@@ -26,6 +26,7 @@ MEMCCACHE_MAGIC = 'CCH1'
 
 def set_blob(data):
     return struct.pack('!I', len(data)) + str(data)
+MEMCCACHE_BIG = 'CCBM'
 
 """
 /* blob format for big values:
@@ -85,10 +86,10 @@ for mtime, dirpath, filename in filelist:
             val += set_blob(dep)
             if len(val) > MAX_VALUE_SIZE:
                 numkeys = (len(val) + SPLIT_VALUE_SIZE - 1) / SPLIT_VALUE_SIZE
-                buf = "keys"
+                buf = MEMCCACHE_BIG
                 buf += struct.pack('!I', numkeys)
                 buf += struct.pack('!I', 20)
-                buf += "size"
+                buf += struct.pack('!I', 0)
                 buf += struct.pack('!I', len(val))
                 def splitchunks(s, n):
                     """Produce `n`-character chunks from `s`."""

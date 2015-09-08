@@ -5,6 +5,12 @@
 #include <libmemcached/memcached.h>
 #include <netinet/in.h>
 
+#define MEMCCACHE_MAGIC "CCH1"
+#define MEMCCACHE_BIG "CCBM"
+
+#define MAX_VALUE_SIZE (1000 << 10) // 1M with memcached overhead
+#define SPLIT_VALUE_SIZE MAX_VALUE_SIZE
+
 /* status variables for memcached */
 static memcached_st *memc;
 
@@ -23,9 +29,6 @@ int memccached_init(char *conf)
 	                       MEMCACHED_DISTRIBUTION_CONSISTENT);
 	return 0;
 }
-
-#define MAX_VALUE_SIZE (1000 << 10) // 1M with memcached overhead
-#define SPLIT_VALUE_SIZE MAX_VALUE_SIZE
 
 static memcached_return_t memccached_big_set(memcached_st *ptr,
                                              const char *key,
@@ -53,10 +56,10 @@ static memcached_return_t memccached_big_set(memcached_st *ptr,
 		return -1;
 	p = buf;
 
-	memcpy(p, "keys", 4);
+	memcpy(p, MEMCCACHE_BIG, 4);
 	*((uint32_t *) (p + 4)) = htonl(numkeys);
 	*((uint32_t *) (p + 8)) = htonl(20);
-	memcpy(p + 12, "size", 4);
+	*((uint32_t *) (p + 12)) = htonl(0);
 	*((uint32_t *) (p + 16)) = htonl(value_length);
 	p += 20;
 
@@ -117,11 +120,11 @@ static char *memccached_big_get(memcached_st *ptr,
 	}
 
 	p = (char *) value;
-	if (memcmp(p, "keys", 4) != 0)
+	if (memcmp(p, MEMCCACHE_BIG, 4) != 0)
 		return NULL;
 	numkeys = ntohl(*(uint32_t *) (p + 4));
 	assert(20 == ntohl(*(uint32_t *) (p + 8)));
-	assert(memcmp(p + 12, "size", 4) == 0);
+	assert(0 == ntohl(*(uint32_t *) (p + 12)));
 	totalsize = ntohl(*(uint32_t *) (p + 16));
 	p += 20;
 
@@ -299,7 +302,7 @@ void *memccached_get(const char *key,
 		       memcached_strerror(memc, mret));
 		return NULL;
 	}
-	if (value_l > 4 && memcmp(value, "keys", 4) == 0) {
+	if (value_l > 4 && memcmp(value, MEMCCACHE_BIG, 4) == 0) {
 		value = memccached_big_get(memc, key, strlen(key), value, &value_l,
 		                           NULL /*flags*/, &mret);
 	}
