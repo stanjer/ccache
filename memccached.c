@@ -101,7 +101,7 @@ static memcached_return_t memccached_big_set(memcached_st *ptr,
 		p += 20;
 	}
 
-	cc_log("memcached_set %.*s %ld", (int) key_length, key, buflen);
+	cc_log("memcached_set %.*s %ld (%ld)", (int) key_length, key, buflen, value_length);
 	ret = memcached_set(ptr, key, key_length, buf, buflen,
 	                    expiration, flags);
 	free(buf);
@@ -179,7 +179,7 @@ static char *memccached_big_get(memcached_st *ptr,
 		p += n;
 	} while (ret == MEMCACHED_SUCCESS);
 
-	cc_log("memcached_get %.*s %ld", (int) key_length, key, buflen);
+	cc_log("memcached_get %.*s %ld (%ld)", (int) key_length, key, *value_length, buflen);
 	for (i = 0; i < numkeys; i++)
 		free(keys[i]);
 	free(keys);
