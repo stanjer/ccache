@@ -30,6 +30,21 @@ int memccached_init(char *conf)
 	return 0;
 }
 
+/* blob format for big values:
+
+    char magic[4]; # 'CCBM'
+    uint32_t numkeys; # network endian
+    uint32_t hash_size; # network endian
+    uint32_t reserved; # network endian
+    uint32_t value_length; # network endian
+
+    <hash[0]>       hash of include file                (<hash_size> bytes)
+    <size[0]>       size of include file                (4 bytes unsigned int)
+    ...
+    <hash[n-1]>
+    <size[n-1]>
+
+*/
 static memcached_return_t memccached_big_set(memcached_st *ptr,
                                              const char *key,
                                              size_t key_length,
@@ -58,7 +73,7 @@ static memcached_return_t memccached_big_set(memcached_st *ptr,
 
 	memcpy(p, MEMCCACHE_BIG, 4);
 	*((uint32_t *) (p + 4)) = htonl(numkeys);
-	*((uint32_t *) (p + 8)) = htonl(20);
+	*((uint32_t *) (p + 8)) = htonl(16);
 	*((uint32_t *) (p + 12)) = htonl(0);
 	*((uint32_t *) (p + 16)) = htonl(value_length);
 	p += 20;
@@ -123,7 +138,7 @@ static char *memccached_big_get(memcached_st *ptr,
 	if (memcmp(p, MEMCCACHE_BIG, 4) != 0)
 		return NULL;
 	numkeys = ntohl(*(uint32_t *) (p + 4));
-	assert(20 == ntohl(*(uint32_t *) (p + 8)));
+	assert(16 == ntohl(*(uint32_t *) (p + 8)));
 	assert(0 == ntohl(*(uint32_t *) (p + 12)));
 	totalsize = ntohl(*(uint32_t *) (p + 16));
 	p += 20;

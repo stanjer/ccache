@@ -88,7 +88,7 @@ for mtime, dirpath, filename in filelist:
                 numkeys = (len(val) + SPLIT_VALUE_SIZE - 1) / SPLIT_VALUE_SIZE
                 buf = MEMCCACHE_BIG
                 buf += struct.pack('!I', numkeys)
-                buf += struct.pack('!I', 20)
+                buf += struct.pack('!I', 16)
                 buf += struct.pack('!I', 0)
                 buf += struct.pack('!I', len(val))
                 def splitchunks(s, n):
