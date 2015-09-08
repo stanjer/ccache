@@ -7,8 +7,6 @@
 
 /* status variables for memcached */
 static memcached_st *memc;
-static char *current_cache = NULL;
-static int current_length = 0;
 
 int memccached_init(char *conf)
 {
@@ -252,8 +250,6 @@ int memccached_set(const char *key,
 		       memcached_strerror(memc, mret));
 		return -1;
 	}
-	current_cache = buf;
-	current_length = buf_len;
 	return 0;
 }
 
@@ -296,18 +292,8 @@ void *memccached_get(const char *key,
 	memcached_return_t mret;
 	char *value, *ptr;
 	size_t value_l;
-	/* micro optimization: for the second from_cache, we don't hit memcached
-	   and just reuse the data that we just sent
-	   I don't understand anyway the need for a second from_cache ;-/
-	 */
-	if (current_cache) {
-		value = current_cache;
-		value_l = current_length;
-		current_cache = NULL;
-	} else {
-		value = memcached_get(memc, key, strlen(key), &value_l,
-		                      NULL /*flags*/, &mret);
-	}
+	value = memcached_get(memc, key, strlen(key), &value_l,
+	                      NULL /*flags*/, &mret);
 	if (value == NULL) {
 		cc_log("Failed to get key from memcached %s: %s", key,
 		       memcached_strerror(memc, mret));
