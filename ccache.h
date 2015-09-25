@@ -50,6 +50,7 @@ enum stats {
 	STATS_COMPCHECK = 26,
 	STATS_CANTUSEPCH = 27,
 	STATS_PREPROCESSING = 28,
+	STATS_NUMCLEANUPS = 29,
 
 	STATS_END
 };
@@ -163,6 +164,7 @@ int stats_set_limits(long maxfiles, long maxsize);
 size_t value_units(const char *s);
 char *format_size(size_t v);
 void stats_set_sizes(const char *dir, size_t num_files, size_t total_size);
+void stats_add_cleanup(const char *dir, int count);
 void stats_read(const char *path, struct counters *counters);
 void stats_write(const char *path, struct counters *counters);
 

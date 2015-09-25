@@ -1499,8 +1499,8 @@ prepare_cleanup_test() {
         fi
         i=`expr $i + 1`
     done
-    # NUMFILES: 30, TOTALSIZE: 40 KiB, MAXFILES: 0, MAXSIZE: 0
-    echo "0 0 0 0 0 0 0 0 0 0 0 30 40 0 0" >$dir/stats
+    # NUMFILES: 30, TOTALSIZE: 40 KiB, MAXFILES: 0, MAXSIZE: 0, CLEANUPS: 0
+    echo "0 0 0 0 0 0 0 0 0 0 0 30 40 0 0 0" >$dir/stats
 }
 
 cleanup_suite() {
@@ -1511,6 +1511,7 @@ cleanup_suite() {
     checkfilecount 0 '*.d' $CCACHE_DIR
     checkfilecount 0 '*.stderr' $CCACHE_DIR
     checkstat 'files in cache' 0
+    checkstat 'cleanups performed' 1
 
     testname="forced cleanup, no limits"
     $CCACHE -C >/dev/null
@@ -1521,6 +1522,7 @@ cleanup_suite() {
     checkfilecount 10 '*.d' $CCACHE_DIR
     checkfilecount 10 '*.stderr' $CCACHE_DIR
     checkstat 'files in cache' 30
+    checkstat 'cleanups performed' 0
 
     testname="forced cleanup, file limit"
     $CCACHE -C >/dev/null
@@ -1533,6 +1535,7 @@ cleanup_suite() {
     checkfilecount 7 '*.d' $CCACHE_DIR
     checkfilecount 7 '*.stderr' $CCACHE_DIR
     checkstat 'files in cache' 21
+    checkstat 'cleanups performed' 1
     for i in 0 1 2 3 4 5 9; do
         file=$CCACHE_DIR/a/result$i-4017.o
         if [ ! -f $file ]; then
@@ -1562,6 +1565,7 @@ cleanup_suite() {
     checkfilecount 3 '*.d' $CCACHE_DIR
     checkfilecount 3 '*.stderr' $CCACHE_DIR
     checkstat 'files in cache' 9
+    checkstat 'cleanups performed' 1
     for i in 3 4 5; do
         file=$CCACHE_DIR/a/result$i-4017.o
         if [ ! -f $file ]; then
@@ -1593,6 +1597,7 @@ cleanup_suite() {
     checkfilecount 156 '*.d' $CCACHE_DIR
     checkfilecount 156 '*.stderr' $CCACHE_DIR
     checkstat 'files in cache' 469
+    checkstat 'cleanups performed' 1
 
     testname="sibling cleanup"
     $CCACHE -C >/dev/null

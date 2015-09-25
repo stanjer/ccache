@@ -123,12 +123,13 @@ delete_sibling_file(const char *base, const char *extension)
 
 /* sort the files we've found and delete the oldest ones until we are
    below the thresholds */
-static void
+static int
 sort_and_clean(void)
 {
 	unsigned i;
 	const char *ext;
 	char *last_base = x_strdup("");
+	int clean = 0;
 
 	if (num_files > 1) {
 		/* Sort in ascending mtime order. */
@@ -169,8 +170,10 @@ sort_and_clean(void)
 			/* .manifest or unknown file. */
 			delete_file(files[i]->fname, files[i]->size);
 		}
+		clean = 1;
 	}
 	free(last_base);
+	return clean;
 }
 
 /* cleanup in one cache subdir */
@@ -178,6 +181,7 @@ void
 cleanup_dir(const char *dir, size_t maxfiles, size_t maxsize)
 {
 	unsigned i;
+	int clean;
 
 	cc_log("Cleaning up cache directory %s", dir);
 
@@ -192,7 +196,12 @@ cleanup_dir(const char *dir, size_t maxfiles, size_t maxsize)
 	traverse(dir, traverse_fn);
 
 	/* clean the cache */
-	sort_and_clean();
+	clean = sort_and_clean();
+
+	if (clean > 0) {
+		cc_log("Cleaned up cache directory %s", dir);
+		stats_add_cleanup(dir, clean);
+	}
 
 	stats_set_sizes(dir, files_in_cache, cache_size);
 
@@ -242,18 +251,42 @@ static void wipe_fn(const char *fname, struct stat *st)
 	}
 	free(p);
 
+	files_in_cache++;
+
 	x_unlink(fname);
+}
+
+/* wipe in one cache subdir */
+void
+wipe_dir(const char *dir, size_t maxfiles)
+{
+	cc_log("Clearing out cache directory %s", dir);
+
+	files_in_cache_threshold = maxfiles * LIMIT_MULTIPLE;
+
+	files_in_cache = 0;
+
+	traverse(dir, wipe_fn);
+
+	if (files_in_cache > 0) {
+		cc_log("Cleared out cache directory %s", dir);
+		stats_add_cleanup(dir, 1);
+	}
+
+	files_in_cache = 0;
 }
 
 /* wipe all cached files in all subdirs */
 void wipe_all(const char *dir)
 {
+	unsigned maxfiles, maxsize;
 	char *dname;
 	int i;
 
 	for (i = 0; i <= 0xF; i++) {
 		dname = format("%s/%1x", dir, i);
-		traverse(dir, wipe_fn);
+		stats_get_limits(dname, &maxfiles, &maxsize);
+		wipe_dir(dname, maxfiles);
 		free(dname);
 	}
 
