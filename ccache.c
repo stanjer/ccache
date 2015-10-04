@@ -3146,14 +3146,19 @@ ccache_main_options(int argc, char *argv[])
 {
 	int c;
 	char *errmsg;
+	int i;
+	struct mdfour md;
+	char *str;
 
 	enum longopts {
-		DUMP_MANIFEST
+		DUMP_MANIFEST,
+		HASH_FILE
 	};
 	static const struct option options[] = {
 		{"cleanup",       no_argument,       0, 'c'},
 		{"clear",         no_argument,       0, 'C'},
 		{"dump-manifest", required_argument, 0, DUMP_MANIFEST},
+		{"hash-file",     no_argument,       0, HASH_FILE},
 		{"help",          no_argument,       0, 'h'},
 		{"max-files",     required_argument, 0, 'F'},
 		{"max-size",      required_argument, 0, 'M'},
@@ -3169,6 +3174,18 @@ ccache_main_options(int argc, char *argv[])
 		switch (c) {
 		case DUMP_MANIFEST:
 			manifest_dump(optarg, stdout);
+			break;
+
+		case HASH_FILE:
+			initialize();
+			for (i = optind; i < argc; i++) {
+				hash_start(&md);
+				if (hash_file(&md, argv[i])) {
+					str = hash_result(&md);
+					printf("%s\t%s\n", argv[i], str);
+					free(str);
+				}
+			}
 			break;
 
 		case 'c': /* --cleanup */
