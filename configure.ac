@@ -120,6 +120,20 @@ else
     LIBS="$LIBS -lz"
 fi
 
+AC_ARG_WITH(system-crypto,
+  [AS_HELP_STRING([--with-system-crypto],
+    [use system's openssl MD4 crypto instead of the bundled mdfour])])
+if test x${with_system_crypto} = xyes; then
+    AC_CHECK_HEADERS(openssl/md4.h)
+    AC_CHECK_LIB([crypto], [MD4_Init])
+    if test $ac_cv_header_openssl_md4_h = yes && test $ac_cv_lib_crypto_MD4_Init = yes; then
+        AC_MSG_NOTICE(using openssl crypto for md4)
+        AC_DEFINE(USE_CRYPTO, 1, Use crypto for MD4)
+    else
+        AC_MSG_ERROR(cannot find openssl md4)
+    fi
+fi
+
 dnl Linking on Windows needs ws2_32
 if test x${windows_os} = xyes; then
     LIBS="$LIBS -lws2_32"

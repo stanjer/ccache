@@ -18,6 +18,11 @@
 
 #include "ccache.h"
 
+#ifdef HAVE_OPENSSL_MD4_H
+#include <openssl/md4.h>
+#endif
+
+#ifndef USE_CRYPTO
 /* NOTE: This code makes no attempt to be fast! */
 
 static struct mdfour *m;
@@ -213,3 +218,26 @@ mdfour_result(struct mdfour *md, unsigned char *out)
 	copy4(out+8, md->C);
 	copy4(out+12, md->D);
 }
+#else /* USE_CRYPTO */
+void mdfour_begin(struct mdfour *md)
+{
+	(void) MD4_Init(&md->ctx);
+	md->totalN = 0;
+}
+
+void mdfour_update(struct mdfour *md, const unsigned char *in, size_t n)
+{
+	(void) MD4_Update(&md->ctx, (const void *) in, n);
+	md->totalN += n;
+}
+
+void mdfour_result(struct mdfour *md, unsigned char *out)
+{
+	MD4_CTX ctx;
+
+	/* MD4_Final erases the MD4_CTX */
+	memcpy(&ctx, &md->ctx, sizeof(ctx));
+	(void) MD4_Final(out, &md->ctx);
+	memcpy(&md->ctx, &ctx, sizeof(ctx));
+}
+#endif
