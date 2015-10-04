@@ -125,6 +125,9 @@ static char *cached_stderr;
  */
 static char *cached_dep;
 
+/* the manifest key */
+static char *manifest_name;
+
 /*
  * Full path to the file containing the diagnostic information (for clang)
  * (cachedir/a/b/cdef[...]-size.dia).
@@ -1240,11 +1243,15 @@ static struct file_hash *
 calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 {
 	int i;
-	char *manifest_name;
 	struct stat st;
 	int result;
 	struct file_hash *object_hash = NULL;
 	char *p;
+#if HAVE_LIBMEMCACHED
+	void *cache = NULL;
+	char *data;
+	size_t size;
+#endif
 
 	if (direct_mode) {
 		hash_delimiter(hash, "manifest version");
@@ -1440,7 +1447,21 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 		}
 		manifest_name = hash_result(hash);
 		manifest_path = get_path_in_cache(manifest_name, ".manifest");
-		free(manifest_name);
+		/* Check if the manifest file is there. */
+		if (stat(manifest_path, &st) != 0) {
+			cc_log("Manifest file %s not in cache", manifest_path);
+#if HAVE_LIBMEMCACHED
+			if (conf->memcached_conf) {
+				cc_log("Getting %s from memcached", manifest_name);
+				cache = memccached_raw_get(manifest_name, &data, &size);
+			}
+			if (cache) {
+				write_file(data, manifest_path, size);
+				free(cache);
+			} else
+#endif
+			return NULL;
+		}
 		cc_log("Looking for object file hash in %s", manifest_path);
 		object_hash = manifest_get(conf, manifest_path);
 		if (object_hash) {
@@ -1471,8 +1492,8 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	bool produce_dep_file;
 #if HAVE_LIBMEMCACHED
 	void *cache = NULL;
-	char *data_obj, *data_stderr, *data_dia, *data_dep;
-	size_t size_obj, size_stderr, size_dia, size_dep;
+	char *data, *data_obj, *data_stderr, *data_dia, *data_dep;
+	size_t size, size_obj, size_stderr, size_dia, size_dep;
 #endif
 
 	/* the user might be disabling cache hits */
@@ -1580,6 +1601,13 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 			update_mtime(manifest_path);
 			stat(manifest_path, &st);
 			stats_update_size(file_size(&st) - old_size, old_size == 0 ? 1 : 0);
+#if HAVE_LIBMEMCACHED
+			if (conf->memcached_conf && read_file(manifest_path, st.st_size, &data, &size)) {
+				cc_log("Storing %s in memcached", manifest_name);
+				memccached_raw_set(manifest_name, data, size);
+				free(data);
+			}
+#endif
 		} else {
 			cc_log("Failed to add object file hash to %s", manifest_path);
 		}
@@ -2584,6 +2612,7 @@ cc_reset(void)
 	free(cached_stderr); cached_stderr = NULL;
 	free(cached_dep); cached_dep = NULL;
 	free(cached_dia); cached_dia = NULL;
+	free(manifest_name); manifest_name = NULL;
 	free(manifest_path); manifest_path = NULL;
 
 	time_of_compilation = 0;
