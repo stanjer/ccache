@@ -33,8 +33,24 @@ server = os.getenv("MEMCACHED_SERVERS", "localhost")
 mc = memcache.Client([server], debug=1)
 
 ccache = os.getenv("CCACHE_DIR", os.path.expanduser("~/.ccache"))
-files = blobs = chunks = objects = manifest = 0
+tree = []
 for dirpath, dirnames, filenames in os.walk(ccache):
+    # sort by modification time, most recently used last
+    dirs = []
+    for dirname in dirnames:
+        stat = os.stat(os.path.join(dirpath, dirname))
+        dirs.append((stat.st_mtime, dirname))
+    dirs.sort()
+    dirnames = [x[1] for x in dirs]
+    files = []
+    for filename in filenames:
+        stat = os.stat(os.path.join(dirpath, filename))
+        files.append((stat.st_mtime, filename))
+    files.sort()
+    filenames = [x[1] for x in files]
+    tree.append((dirpath, dirnames, filenames))
+files = blobs = chunks = objects = manifest = 0
+for dirpath, dirnames, filenames in tree:
     dirname = dirpath.replace(ccache + os.path.sep, "")
     for filename in filenames:
         (base, ext) = os.path.splitext(filename)
