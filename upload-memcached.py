@@ -83,6 +83,12 @@ for dirpath, dirnames, filenames in os.walk(ccache):
         elif ext == '.stderr' or ext == '.d':
             files = files + 1
         elif ext == '.manifest':
-            files = files + 1
             manifest = manifest + 1
+            key = "".join(list(os.path.split(dirname)) + [base])
+            val = open(os.path.join(dirpath, filename)).read() or None
+            if val:
+                print "%s: manifest %d" % (key, len(val))
+                mc.set(key, val, 0, 0)
+            files = files + 1
+            blobs = blobs + 1
 print "%d files, %d objects (%d manifest) = %d blobs (%d chunks)" % (files, objects, manifest, blobs, chunks)
