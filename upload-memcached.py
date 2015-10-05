@@ -47,7 +47,7 @@ for dirpath, dirnames, filenames in os.walk(ccache):
             stderr = read_file(os.path.join(dirpath, base) + '.stderr')
             dep = read_file(os.path.join(dirpath, base) + '.d')
 
-            print "%s: %d %d %d" % (key, len(obj), len(stderr), len(dep))
+            print "%s: %d %d %d %d" % (key, len(obj), len(stderr), 0, len(dep))
             val = CCACHE_MAGIC
             val += set_blob(obj)
             val += set_blob(stderr)
