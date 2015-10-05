@@ -1602,10 +1602,12 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 			stat(manifest_path, &st);
 			stats_update_size(file_size(&st) - old_size, old_size == 0 ? 1 : 0);
 #if HAVE_LIBMEMCACHED
-			if (conf->memcached_conf && read_file(manifest_path, st.st_size, &data, &size)) {
-				cc_log("Storing %s in memcached", manifest_name);
-				memccached_raw_set(manifest_name, data, size);
-				free(data);
+	                if (conf->memcached_conf && !getenv("CCACHE_MEMCACHE_READONLY")) {
+				if (read_file(manifest_path, st.st_size, &data, &size)) {
+					cc_log("Storing %s in memcached", manifest_name);
+					memccached_raw_set(manifest_name, data, size);
+					free(data);
+				}
 			}
 #endif
 		} else {
