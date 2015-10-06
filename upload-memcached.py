@@ -63,7 +63,10 @@ filelist.sort()
 files = blobs = chunks = objects = manifest = 0
 for mtime, dirpath, filename in filelist:
     dirname = dirpath.replace(ccache + os.path.sep, "")
-    if True:
+    if filename == "CACHEDIR.TAG":
+        # ignore these
+        files = files + 1
+    else:
         (base, ext) = os.path.splitext(filename)
         if ext == '.o':
             objects = objects + 1
@@ -108,6 +111,7 @@ for mtime, dirpath, filename in filelist:
             files = files + 1
             blobs = blobs + 1
         elif ext == '.stderr' or ext == '.d':
+            # was added above
             files = files + 1
         elif ext == '.manifest':
             manifest = manifest + 1
