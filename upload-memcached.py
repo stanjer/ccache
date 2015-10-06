@@ -77,7 +77,7 @@ for mtime, dirpath, filename in filelist:
                     subhash.update(subval)
                     buf += subhash.digest() + struct.pack('!I', len(subval))
                     subkey = "%s-%d" % (subhash.hexdigest(), len(subval))
-                    print "# %s: %d" % (subkey, len(subval))
+                    print "# %s: chunk %d" % (subkey, len(subval))
                     #mc.set(subkey, subval)
                     valmap[subkey] = subval
                     chunks = chunks + 1
