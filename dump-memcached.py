@@ -22,9 +22,29 @@ import binascii
 
 */
 """
-CCACHE_MAGIC = 'CCH1'
+MEMCCACHE_MAGIC = 'CCH1'
+
 def get_blob(token):
     return token[4:4+struct.unpack('!I', val[0:4])[0]]
+
+"""
+/* blob format for big values:
+
+    char magic[4]; # 'CCBM'
+    uint32_t numkeys; # network endian
+    uint32_t hash_size; # network endian
+    uint32_t reserved; # network endian
+    uint32_t value_length; # network endian
+
+    <hash[0]>       hash of include file                (<hash_size> bytes)
+    <size[0]>       size of include file                (4 bytes unsigned int)
+    ...
+    <hash[n-1]>
+    <size[n-1]>
+
+*/
+"""
+MEMCCACHE_BIG = 'CCBM'
 
 server = os.getenv("MEMCACHED_SERVERS", "localhost")
 mc = memcache.Client([server], debug=1)
@@ -50,7 +70,7 @@ if val[0:4] == 'keys':
    val = buf
 if val:
    magic = val[0:4]
-   if magic == CCACHE_MAGIC:
+   if magic == MEMCCACHE_MAGIC:
       val = val[4:]
       obj = get_blob(val)
       val = val[4+len(obj):]
