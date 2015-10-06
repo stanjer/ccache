@@ -22,9 +22,29 @@ import hashlib
 
 */
 """
-CCACHE_MAGIC = 'CCH1'
+MEMCCACHE_MAGIC = 'CCH1'
+
 def set_blob(data):
     return struct.pack('!I', len(data)) + str(data)
+
+"""
+/* blob format for big values:
+
+    char magic[4]; # 'CCBM'
+    uint32_t numkeys; # network endian
+    uint32_t hash_size; # network endian
+    uint32_t reserved; # network endian
+    uint32_t value_length; # network endian
+
+    <hash[0]>       hash of include file                (<hash_size> bytes)
+    <size[0]>       size of include file                (4 bytes unsigned int)
+    ...
+    <hash[n-1]>
+    <size[n-1]>
+
+*/
+"""
+MEMCCACHE_BIG = 'CCBM'
 
 MAX_VALUE_SIZE = 1000 << 10 # 1M with memcached overhead
 SPLIT_VALUE_SIZE = MAX_VALUE_SIZE
@@ -55,7 +75,7 @@ for mtime, dirpath, filename in filelist:
             dep = read_file(os.path.join(dirpath, base) + '.d')
 
             print "%s: %d %d %d %d" % (key, len(obj), len(stderr), 0, len(dep))
-            val = CCACHE_MAGIC
+            val = MEMCCACHE_MAGIC
             val += set_blob(obj)
             val += set_blob(stderr)
             val += set_blob("") # dia
