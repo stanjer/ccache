@@ -727,6 +727,8 @@ to share memcached connections and thus avoid some of the network overhead.
 It will also allow you to fine-tune connection timeouts and other settings.
 You can optionally replace your memcached servers with Couchbase servers.
 
+    moxi -z 11211=mc_server1:11211,mc_server2:11211
+
 Using ccache with other compiler wrappers
 -----------------------------------------
 
