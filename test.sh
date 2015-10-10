@@ -709,6 +709,17 @@ memcached_suite() {
     unset CCACHE_MEMCACHED_CONF
 }
 
+memcached_socket_suite() {
+    CCACHE_COMPILE="$CCACHE $COMPILER"
+    export CCACHE_MEMCACHED_CONF=--SOCKET=\"/tmp/memcached.$$\"
+    memcached -s /tmp/memcached.$$ &
+    memcached_pid=$!
+    base_tests
+    kill $memcached_pid
+    rm /tmp/memcached.$$
+    unset CCACHE_MEMCACHED_CONF
+}
+
 direct_suite() {
     unset CCACHE_NODIRECT
 
@@ -2442,6 +2453,7 @@ pch
 upgrade
 prefix
 memcached
+memcached_socket !win32
 "
 
 case $host_os in
