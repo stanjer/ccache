@@ -153,6 +153,11 @@ static char *memccached_big_get(memcached_st *ptr,
 		result = memcached_fetch_result(ptr, result, &ret);
 		if (ret == MEMCACHED_END)
 			break;
+		if (ret) {
+			cc_log("Failed to get key in memcached: %s",
+			       memcached_strerror(memc, ret));
+			return NULL;
+		}
 		n = memcached_result_length(result);
 		memcpy(p, memcached_result_value(result), n);
 		p += n;
@@ -311,6 +316,11 @@ void *memccached_get(const char *key,
 	if (value_l > 4 && memcmp(value, "keys", 4) == 0) {
 		value = memccached_big_get(memc, key, strlen(key), value, &value_l,
 		                           NULL /*flags*/, &mret);
+	}
+	if (value == NULL) {
+		cc_log("Failed to get key from memcached %s: %s", key,
+		       memcached_strerror(memc, mret));
+		return NULL;
 	}
 	if (value_l < 20 || memcmp(value, MEMCCACHE_MAGIC, 4) != 0) {
 		cc_log("wrong magic or length %s: %d", value, (int)value_l);
