@@ -100,6 +100,12 @@ static char *output_dep;
 static struct file_hash *cached_obj_hash;
 
 /*
+ * Full path to the file containing the cached compile command
+ * (cachedir/a/b/cdef[...]-size.cmd).
+ */
+static char *cached_cmd;
+
+/*
  * Full path to the file containing the cached object code
  * (cachedir/a/b/cdef[...]-size.o).
  */
@@ -611,6 +617,7 @@ to_cache(struct args *args)
 	int status;
 	size_t added_bytes = 0;
 	unsigned added_files = 0;
+	FILE *fp;
 
 	tmp_stdout = format("%s.tmp.stdout.%s", cached_obj, tmp_string());
 	tmp_stderr = format("%s.tmp.stderr.%s", cached_obj, tmp_string());
@@ -776,6 +783,15 @@ to_cache(struct args *args)
 
 	stats_update_size(STATS_TOCACHE, added_bytes / 1024, added_files);
 
+	/* Store the original compiler command in the cache, if requested to */
+	if (getenv("CCACHE_STORECOMMAND")) {
+		fp = fopen(cached_cmd, "a");
+		if (fp != NULL) {
+			print_command(fp, orig_args->argv);
+			fclose(fp);
+		}
+	}
+
 	free(tmp_obj);
 	free(tmp_stderr);
 	free(tmp_stdout);
@@ -896,6 +912,7 @@ update_cached_result_globals(struct file_hash *hash)
 
 	object_name = format_hash_as_string(hash->hash, hash->size);
 	cached_obj_hash = hash;
+	cached_cmd = get_path_in_cache(object_name, ".cmd");
 	cached_obj = get_path_in_cache(object_name, ".o");
 	cached_stderr = get_path_in_cache(object_name, ".stderr");
 	cached_dep = get_path_in_cache(object_name, ".d");
@@ -1256,6 +1273,7 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 
 	/* Update modification timestamps to save files from LRU cleanup.
 	   Also gives files a sensible mtime when hard-linking. */
+	update_mtime(cached_cmd);
 	update_mtime(cached_obj);
 	update_mtime(cached_stderr);
 	if (produce_dep_file) {
@@ -1956,6 +1974,7 @@ cc_reset(void)
 	free(output_obj); output_obj = NULL;
 	free(output_dep); output_dep = NULL;
 	free(cached_obj_hash); cached_obj_hash = NULL;
+	free(cached_cmd); cached_cmd = NULL;
 	free(cached_obj); cached_obj = NULL;
 	free(cached_stderr); cached_stderr = NULL;
 	free(cached_dep); cached_dep = NULL;

@@ -361,6 +361,11 @@ WRAPPERS>>.
     This forces ccache to not use any cached results, even if it finds them.
     New results are still cached, but existing cache entries are ignored.
 
+*CCACHE_STORECOMMAND*::
+
+    Store the original compiler command in the cache, next to the object.
+    This feature can be useful when troubleshooting cache hits and misses.
+
 *CCACHE_SLOPPINESS*::
 
     By default, ccache tries to give as few false cache hits as possible.
