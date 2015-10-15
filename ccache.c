@@ -1193,7 +1193,8 @@ to_cache(struct args *args)
 	}
 
 #ifdef HAVE_LIBMEMCACHED
-	if (strlen(conf->memcached_conf) > 0 && !conf->read_only_memcached) {
+	if (strlen(conf->memcached_conf) > 0 && !conf->read_only_memcached &&
+	    !generating_coverage) { /* coverage refers to local paths anyway */
 		cc_log("Storing %s in memcached", cached_key);
 		if (!read_file(cached_obj, 0, &data_obj, &size_obj)) {
 			data_obj = NULL;
@@ -1798,7 +1799,7 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	if (stat(cached_obj, &st) != 0) {
 		cc_log("Object file %s not in cache", cached_obj);
 #if HAVE_LIBMEMCACHED
-		if (strlen(conf->memcached_conf) > 0) {
+		if (strlen(conf->memcached_conf) > 0 && !generating_coverage) {
 			cc_log("Getting %s from memcached", cached_key);
 			cache = memccached_get(cached_key,
 			                       &data_obj, &data_stderr, &data_dia, &data_dep,
