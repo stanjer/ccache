@@ -3001,7 +3001,6 @@ cc_reset(void)
 	memccached_release();
 #endif
 
-	initialize();
 	conf = conf_create();
 	using_split_dwarf = false;
 }
@@ -3360,6 +3359,5 @@ ccache_main(int argc, char *argv[])
 	free(program_name);
 
 	ccache(argc, argv);
-
 	return 1;
 }
