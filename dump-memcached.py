@@ -53,37 +53,37 @@ mc = memcache.Client([server], debug=1)
 key = sys.argv[1]
 val = mc.get(key)
 if val[0:4] == MEMCCACHE_BIG:
-   numkeys = struct.unpack('!I', val[4:8])[0]
-   assert(struct.unpack('!I', val[8:12])[0] == 16)
-   assert(struct.unpack('!I', val[12:16])[0] == 0)
-   size = struct.unpack('!I', val[16:20])[0]
-   val = val[20:]
-   buf = ""
-   while val:
-      md4 = val[0:16]
-      size = struct.unpack('!I', val[16:20])[0]
-      val = val[20:]
-      subkey = "%s-%d" % (binascii.hexlify(md4), size)
-      subval = mc.get(subkey)
-      if not subval:
-          print "%s not found" % subkey
-      buf = buf + subval
-   val = buf
+    numkeys = struct.unpack('!I', val[4:8])[0]
+    assert struct.unpack('!I', val[8:12])[0] == 16
+    assert struct.unpack('!I', val[12:16])[0] == 0
+    size = struct.unpack('!I', val[16:20])[0]
+    val = val[20:]
+    buf = ""
+    while val:
+        md4 = val[0:16]
+        size = struct.unpack('!I', val[16:20])[0]
+        val = val[20:]
+        subkey = "%s-%d" % (binascii.hexlify(md4), size)
+        subval = mc.get(subkey)
+        if not subval:
+            print "%s not found" % subkey
+        buf = buf + subval
+    val = buf
 if val:
-   magic = val[0:4]
-   if magic == MEMCCACHE_MAGIC:
-      val = val[4:]
-      obj = get_blob(val)
-      val = val[4+len(obj):]
-      stderr = get_blob(val)
-      val = val[4+len(stderr):]
-      dia = get_blob(val)
-      val = val[4+len(dia):]
-      dep = get_blob(val)
-      val = val[4+len(dep):]
-      assert(len(val) == 0)
-      print "%s: %d %d %d %d" % (key, len(obj), len(stderr), len(dia), len(dep))
-   else:
-      print "wrong magic"
+    magic = val[0:4]
+    if magic == MEMCCACHE_MAGIC:
+        val = val[4:]
+        obj = get_blob(val)
+        val = val[4+len(obj):]
+        stderr = get_blob(val)
+        val = val[4+len(stderr):]
+        dia = get_blob(val)
+        val = val[4+len(dia):]
+        dep = get_blob(val)
+        val = val[4+len(dep):]
+        assert len(val) == 0
+        print "%s: %d %d %d %d" % (key, len(obj), len(stderr), len(dia), len(dep))
+    else:
+        print "wrong magic"
 else:
-   print "key missing"
+    print "key missing"

@@ -2,7 +2,6 @@
 
 import memcache
 import struct
-import sys
 import os
 import hashlib
 
@@ -71,7 +70,7 @@ for mtime, dirpath, filename in filelist:
         (base, ext) = os.path.splitext(filename)
         if ext == '.o':
             objects = objects + 1
-	    key = "".join(list(os.path.split(dirname)) + [base])
+            key = "".join(list(os.path.split(dirname)) + [base])
             def read_file(path):
                 return os.path.exists(path) and open(path).read() or ""
             obj = read_file(os.path.join(dirpath, filename))
