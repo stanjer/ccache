@@ -887,6 +887,10 @@ void update_manifest_file(void)
 {
 	struct stat st;
 	size_t old_size = 0; /* in bytes */
+#ifdef HAVE_LIBMEMCACHED
+	char *data;
+	size_t size;
+#endif
 
 	if (!conf->direct_mode
 	    || !included_files
@@ -903,6 +907,15 @@ void update_manifest_file(void)
 		update_mtime(manifest_path);
 		if (x_stat(manifest_path, &st) == 0) {
 			stats_update_size(file_size(&st) - old_size, old_size == 0 ? 1 : 0);
+#if HAVE_LIBMEMCACHED
+	                if (conf->memcached_conf && !getenv("CCACHE_MEMCACHE_READONLY")) {
+				if (read_file(manifest_path, st.st_size, &data, &size)) {
+					cc_log("Storing %s in memcached", manifest_name);
+					memccached_raw_set(manifest_name, data, size);
+					free(data);
+				}
+			}
+#endif
 		}
 	} else {
 		cc_log("Failed to add object file hash to %s", manifest_path);
@@ -1773,8 +1786,8 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	bool produce_dep_file = false;
 #if HAVE_LIBMEMCACHED
 	void *cache = NULL;
-	char *data, *data_obj, *data_stderr, *data_dia, *data_dep;
-	size_t size, size_obj, size_stderr, size_dia, size_dep;
+	char *data_obj, *data_stderr, *data_dia, *data_dep;
+	size_t size_obj, size_stderr, size_dia, size_dep;
 #endif
 
 	/* the user might be disabling cache hits */
@@ -1894,36 +1907,6 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	}
 
 	send_cached_stderr();
-
-	/* Create or update the manifest file. */
-	if (conf->direct_mode
-	    && put_object_in_manifest
-	    && included_files
-	    && !conf->read_only
-	    && !conf->read_only_direct) {
-		struct stat st;
-		size_t old_size = 0; /* in bytes */
-		if (stat(manifest_path, &st) == 0) {
-			old_size = file_size(&st);
-		}
-		if (manifest_put(manifest_path, cached_obj_hash, included_files)) {
-			cc_log("Added object file hash to %s", manifest_path);
-			update_mtime(manifest_path);
-			stat(manifest_path, &st);
-			stats_update_size(file_size(&st) - old_size, old_size == 0 ? 1 : 0);
-#if HAVE_LIBMEMCACHED
-	                if (conf->memcached_conf && !getenv("CCACHE_MEMCACHE_READONLY")) {
-				if (read_file(manifest_path, st.st_size, &data, &size)) {
-					cc_log("Storing %s in memcached", manifest_name);
-					memccached_raw_set(manifest_name, data, size);
-					free(data);
-				}
-			}
-#endif
-		} else {
-			cc_log("Failed to add object file hash to %s", manifest_path);
-		}
-	}
 
 	if (put_object_in_manifest) {
 		update_manifest_file();
