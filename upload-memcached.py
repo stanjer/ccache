@@ -76,13 +76,14 @@ for mtime, dirpath, filename in filelist:
                 return os.path.exists(path) and open(path).read() or ""
             obj = read_file(os.path.join(dirpath, filename))
             stderr = read_file(os.path.join(dirpath, base) + '.stderr')
+            dia = read_file(os.path.join(dirpath, base) + '.dia')
             dep = read_file(os.path.join(dirpath, base) + '.d')
 
-            print "%s: %d %d %d %d" % (key, len(obj), len(stderr), 0, len(dep))
+            print "%s: %d %d %d %d" % (key, len(obj), len(stderr), len(dia), len(dep))
             val = MEMCCACHE_MAGIC
             val += set_blob(obj)
             val += set_blob(stderr)
-            val += set_blob("") # dia
+            val += set_blob(dia)
             val += set_blob(dep)
             if len(val) > MAX_VALUE_SIZE:
                 numkeys = (len(val) + SPLIT_VALUE_SIZE - 1) / SPLIT_VALUE_SIZE
@@ -111,7 +112,7 @@ for mtime, dirpath, filename in filelist:
                 mc.set(key, val)
             files = files + 1
             blobs = blobs + 1
-        elif ext == '.stderr' or ext == '.d':
+        elif ext == '.stderr' or ext == '.d' or ext == '.dia':
             # was added above
             files = files + 1
         elif ext == '.manifest':

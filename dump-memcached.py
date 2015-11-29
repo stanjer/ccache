@@ -82,7 +82,7 @@ if val:
       dep = get_blob(val)
       val = val[4+len(dep):]
       assert(len(val) == 0)
-      print "%s: %d %d %d" % (key, len(obj), len(stderr), len(dep))
+      print "%s: %d %d %d %d" % (key, len(obj), len(stderr), len(dia), len(dep))
    else:
       print "wrong magic"
 else:
