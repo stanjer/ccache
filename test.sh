@@ -281,7 +281,7 @@ base_tests() {
         return
     fi
 
-    # strictly speaking should be 3 - RECACHE causes a double counting!
+    # strictly speaking should be 4 - RECACHE causes a double counting!
     checkstat 'files in cache' 4
     $CCACHE -c > /dev/null
     checkstat 'files in cache' 4

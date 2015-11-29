@@ -173,18 +173,18 @@ static char *memccached_big_get(memcached_st *ptr,
 	return buf;
 }
 
-int memccached_raw_set(const char *key, const char* data, size_t len)
+int memccached_raw_set(const char *key, const char *data, size_t len)
 {
-    memcached_return_t mret;
+	memcached_return_t mret;
 
-    mret = memcached_set(memc, key, strlen(key),
-                         data, len, 0, 0);
-    if (mret != MEMCACHED_SUCCESS) {
-        cc_log("Failed to move %s to memcached: %s", key,
-               memcached_strerror(memc, mret));
-        return -1;
-    }
-    return 0;
+	mret = memcached_set(memc, key, strlen(key),
+	                     data, len, 0, 0);
+	if (mret != MEMCACHED_SUCCESS) {
+		cc_log("Failed to move %s to memcached: %s", key,
+		       memcached_strerror(memc, mret));
+		return -1;
+	}
+	return 0;
 }
 
 /* blob format for storing:
@@ -267,20 +267,20 @@ static void *memccached_prune(const char *key)
 
 void *memccached_raw_get(const char *key, char **data, size_t *size)
 {
-    memcached_return_t mret;
-    void *value;
-    size_t value_l;
+	memcached_return_t mret;
+	void *value;
+	size_t value_l;
 
-    value = memcached_get(memc, key, strlen(key), &value_l,
-                          NULL/*flags*/, &mret);
-    if (value == NULL) {
-            cc_log("Failed to get key from memcached %s: %s", key,
-                   memcached_strerror(memc, mret));
-            return NULL;
-    }
-    *data = value;
-    *size = value_l;
-    return value; /* caller must free this when done with the ptr */
+	value = memcached_get(memc, key, strlen(key), &value_l,
+	                      NULL /*flags*/, &mret);
+	if (value == NULL) {
+		cc_log("Failed to get key from memcached %s: %s", key,
+		       memcached_strerror(memc, mret));
+		return NULL;
+	}
+	*data = value;
+	*size = value_l;
+	return value;   /* caller must free this when done with the ptr */
 }
 
 void *memccached_get(const char *key,
