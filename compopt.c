@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2010, 2012-2013 Joel Rosdahl
+ * Copyright (C) 2010-2015 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -32,8 +32,8 @@ struct compopt {
 };
 
 static const struct compopt compopts[] = {
-	{"--coverage",      TOO_HARD}, /* implies -ftest-coverage */
 	{"--param",         TAKES_ARG},
+	{"--save-temps",    TOO_HARD},
 	{"--serialize-diagnostics", TAKES_ARG | TAKES_PATH},
 	{"-A",              TAKES_ARG},
 	{"-D",              AFFECTS_CPP | TAKES_ARG | TAKES_CONCAT_ARG},
@@ -56,11 +56,11 @@ static const struct compopt compopts[] = {
 	{"-arch",           TAKES_ARG},
 	{"-aux-info",       TAKES_ARG},
 	{"-b",              TAKES_ARG},
+	{"-fmodules",       TOO_HARD},
 	{"-fno-working-directory", AFFECTS_CPP},
+	{"-fplugin=libcc1plugin", TOO_HARD}, /* interaction with GDB */
 	{"-frepo",          TOO_HARD},
-	{"-ftest-coverage", TOO_HARD}, /* generates a .gcno file at the same time */
 	{"-fworking-directory", AFFECTS_CPP},
-	{"-gsplit-dwarf",   TOO_HARD}, /* generates a .dwo file at the same time */
 	{"-idirafter",      AFFECTS_CPP | TAKES_ARG | TAKES_PATH},
 	{"-iframework",     AFFECTS_CPP | TAKES_ARG | TAKES_CONCAT_ARG | TAKES_PATH},
 	{"-imacros",        AFFECTS_CPP | TAKES_ARG | TAKES_PATH},
@@ -78,6 +78,7 @@ static const struct compopt compopts[] = {
 	{"-nostdinc++",     AFFECTS_CPP},
 	{"-remap",          AFFECTS_CPP},
 	{"-save-temps",     TOO_HARD},
+	{"-stdlib=",        AFFECTS_CPP | TAKES_CONCAT_ARG},
 	{"-trigraphs",      AFFECTS_CPP},
 	{"-u",              TAKES_ARG},
 };
@@ -105,8 +106,8 @@ find(const char *option)
 	struct compopt key;
 	key.name = option;
 	return bsearch(
-		&key, compopts, sizeof(compopts) / sizeof(compopts[0]),
-		sizeof(compopts[0]), compare_compopts);
+	         &key, compopts, sizeof(compopts) / sizeof(compopts[0]),
+	         sizeof(compopts[0]), compare_compopts);
 }
 
 static const struct compopt *
@@ -115,8 +116,8 @@ find_prefix(const char *option)
 	struct compopt key;
 	key.name = option;
 	return bsearch(
-		&key, compopts, sizeof(compopts) / sizeof(compopts[0]),
-		sizeof(compopts[0]), compare_prefix_compopts);
+	         &key, compopts, sizeof(compopts) / sizeof(compopts[0]),
+	         sizeof(compopts[0]), compare_prefix_compopts);
 }
 
 /* Runs fn on the first two characters of option. */

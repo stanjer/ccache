@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2002 Andrew Tridgell
- * Copyright (C) 2009-2014 Joel Rosdahl
+ * Copyright (C) 2009-2015 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -74,7 +74,7 @@ log_prefix(bool log_updated_time)
 	if (log_updated_time) {
 		gettimeofday(&tv, NULL);
 #ifdef __MINGW64_VERSION_MAJOR
-		tm = localtime((time_t*)&tv.tv_sec);
+		tm = localtime((time_t *)&tv.tv_sec);
 #else
 		tm = localtime(&tv.tv_sec);
 #endif
@@ -107,16 +107,34 @@ path_max(const char *path)
 #endif
 }
 
+/*
+ * Warn about failure writing to the log file and then exit.
+ */
+static void
+warn_log_fail(void)
+{
+	extern struct conf *conf;
+
+	/* Note: Can't call fatal() since that would lead to recursion. */
+	fprintf(stderr, "ccache: error: Failed to write to %s: %s\n",
+	        conf->log_file, strerror(errno));
+	x_exit(EXIT_FAILURE);
+}
+
 static void
 vlog(const char *format, va_list ap, bool log_updated_time)
 {
+	int rc1, rc2;
 	if (!init_log()) {
 		return;
 	}
 
 	log_prefix(log_updated_time);
-	vfprintf(logfile, format, ap);
-	fprintf(logfile, "\n");
+	rc1 = vfprintf(logfile, format, ap);
+	rc2 = fprintf(logfile, "\n");
+	if (rc1 < 0 || rc2 < 0) {
+		warn_log_fail();
+	}
 }
 
 /*
@@ -153,6 +171,7 @@ cc_bulklog(const char *format, ...)
 void
 cc_log_argv(const char *prefix, char **argv)
 {
+	int rc;
 	if (!init_log()) {
 		return;
 	}
@@ -160,7 +179,10 @@ cc_log_argv(const char *prefix, char **argv)
 	log_prefix(true);
 	fputs(prefix, logfile);
 	print_command(logfile, argv);
-	fflush(logfile);
+	rc = fflush(logfile);
+	if (rc) {
+		warn_log_fail();
+	}
 }
 
 /* something went badly wrong! */
@@ -177,7 +199,7 @@ fatal(const char *format, ...)
 	cc_log("FATAL: %s", msg);
 	fprintf(stderr, "ccache: error: %s\n", msg);
 
-	exit(1);
+	x_exit(1);
 }
 
 /*
@@ -223,9 +245,25 @@ mkstemp(char *template)
 }
 #endif
 
+#ifndef _WIN32
+static mode_t
+get_umask(void)
+{
+	static bool mask_retrieved = false;
+	static mode_t mask;
+	if (!mask_retrieved) {
+		mask = umask(0);
+		umask(mask);
+		mask_retrieved = true;
+	}
+	return mask;
+}
+#endif
+
 /*
  * Copy src to dest, decompressing src if needed. compress_level > 0 decides
- * whether dest will be compressed, and with which compression level.
+ * whether dest will be compressed, and with which compression level. Returns 0
+ * on success and -1 on failure. On failure, errno represents the error.
  */
 int
 copy_file(const char *src, const char *dest, int compress_level)
@@ -235,11 +273,9 @@ copy_file(const char *src, const char *dest, int compress_level)
 	char buf[10240];
 	int n, written;
 	char *tmp_name;
-#ifndef _WIN32
-	mode_t mask;
-#endif
 	struct stat st;
 	int errnum;
+	int saved_errno = 0;
 
 	/* open destination file */
 	tmp_name = x_strdup(dest);
@@ -250,13 +286,15 @@ copy_file(const char *src, const char *dest, int compress_level)
 	/* open source file */
 	fd_in = open(src, O_RDONLY | O_BINARY);
 	if (fd_in == -1) {
-		cc_log("open error: %s", strerror(errno));
+		saved_errno = errno;
+		cc_log("open error: %s", strerror(saved_errno));
 		goto error;
 	}
 
 	gz_in = gzdopen(fd_in, "rb");
 	if (!gz_in) {
-		cc_log("gzdopen(src) error: %s", strerror(errno));
+		saved_errno = errno;
+		cc_log("gzdopen(src) error: %s", strerror(saved_errno));
 		close(fd_in);
 		goto error;
 	}
@@ -267,8 +305,7 @@ copy_file(const char *src, const char *dest, int compress_level)
 		 * occupy an entire filesystem block, even for empty files.
 		 * Turn off compression for empty files to save some space.
 		 */
-		if (fstat(fd_in, &st) != 0) {
-			cc_log("fstat error: %s", strerror(errno));
+		if (x_fstat(fd_in, &st) != 0) {
 			goto error;
 		}
 		if (file_size(&st) == 0) {
@@ -279,7 +316,8 @@ copy_file(const char *src, const char *dest, int compress_level)
 	if (compress_level > 0) {
 		gz_out = gzdopen(dup(fd_out), "wb");
 		if (!gz_out) {
-			cc_log("gzdopen(dest) error: %s", strerror(errno));
+			saved_errno = errno;
+			cc_log("gzdopen(dest) error: %s", strerror(saved_errno));
 			goto error;
 		}
 		gzsetparams(gz_out, compress_level, Z_DEFAULT_STRATEGY);
@@ -294,6 +332,7 @@ copy_file(const char *src, const char *dest, int compress_level)
 			do {
 				count = write(fd_out, buf + written, n - written);
 				if (count == -1 && errno != EINTR) {
+					saved_errno = errno;
 					break;
 				}
 				written += count;
@@ -303,9 +342,9 @@ copy_file(const char *src, const char *dest, int compress_level)
 			if (compress_level > 0) {
 				cc_log("gzwrite error: %s (errno: %s)",
 				       gzerror(gz_in, &errnum),
-				       strerror(errno));
+				       strerror(saved_errno));
 			} else {
-				cc_log("write error: %s", strerror(errno));
+				cc_log("write error: %s", strerror(saved_errno));
 			}
 			goto error;
 		}
@@ -317,8 +356,9 @@ copy_file(const char *src, const char *dest, int compress_level)
 	 */
 	gzerror(gz_in, &errnum);
 	if (!gzeof(gz_in) || (errnum != Z_OK && errnum != Z_STREAM_END)) {
+		saved_errno = errno;
 		cc_log("gzread error: %s (errno: %s)",
-		       gzerror(gz_in, &errnum), strerror(errno));
+		       gzerror(gz_in, &errnum), strerror(saved_errno));
 		gzclose(gz_in);
 		if (gz_out) {
 			gzclose(gz_out);
@@ -337,20 +377,19 @@ copy_file(const char *src, const char *dest, int compress_level)
 	}
 
 #ifndef _WIN32
-	/* get perms right on the tmp file */
-	mask = umask(0);
-	fchmod(fd_out, 0666 & ~mask);
-	umask(mask);
+	fchmod(fd_out, 0666 & ~get_umask());
 #endif
 
 	/* the close can fail on NFS if out of space */
 	if (close(fd_out) == -1) {
-		cc_log("close error: %s", strerror(errno));
+		saved_errno = errno;
+		cc_log("close error: %s", strerror(saved_errno));
 		goto error;
 	}
 
 	if (x_rename(tmp_name, dest) == -1) {
-		cc_log("rename error: %s", strerror(errno));
+		saved_errno = errno;
+		cc_log("rename error: %s", strerror(saved_errno));
 		goto error;
 	}
 
@@ -370,6 +409,7 @@ error:
 	}
 	tmp_unlink(tmp_name);
 	free(tmp_name);
+	errno = saved_errno;
 	return -1;
 }
 /* Write data to a fd. */
@@ -506,16 +546,74 @@ create_parent_dirs(const char *path)
 const char *
 get_hostname(void)
 {
-	static char hostname[200] = "";
+	static char hostname[260] = "";
 
-	if (!hostname[0]) {
-		strcpy(hostname, "unknown");
-#if HAVE_GETHOSTNAME
-		gethostname(hostname, sizeof(hostname)-1);
-#endif
-		hostname[sizeof(hostname)-1] = 0;
+	if (hostname[0]) {
+		return hostname;
 	}
 
+	strcpy(hostname, "unknown");
+#if HAVE_GETHOSTNAME
+	gethostname(hostname, sizeof(hostname) - 1);
+#elif defined(_WIN32)
+	const char *computer_name = getenv("COMPUTERNAME");
+	if (computer_name) {
+		snprintf(hostname, sizeof(hostname), "%s", computer_name);
+		return hostname;
+	}
+
+	WORD wVersionRequested;
+	WSADATA wsaData;
+	int err;
+
+	wVersionRequested = MAKEWORD(2, 2);
+
+	err = WSAStartup(wVersionRequested, &wsaData);
+	if (err != 0) {
+		/* Tell the user that we could not find a usable Winsock DLL. */
+		cc_log("WSAStartup failed with error: %d", err);
+		return hostname;
+	}
+
+	if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2) {
+		/* Tell the user that we could not find a usable WinSock DLL. */
+		cc_log("Could not find a usable version of Winsock.dll");
+		WSACleanup();
+		return hostname;
+	}
+
+	int result = gethostname(hostname, sizeof(hostname) - 1);
+	if (result != 0) {
+		int last_error = WSAGetLastError();
+		LPVOID lpMsgBuf;
+		LPVOID lpDisplayBuf;
+		DWORD dw = last_error;
+
+		FormatMessage(
+		  FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		  FORMAT_MESSAGE_FROM_SYSTEM |
+		  FORMAT_MESSAGE_IGNORE_INSERTS,
+		  NULL, dw, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		  (LPTSTR) &lpMsgBuf, 0, NULL);
+
+		lpDisplayBuf = (LPVOID) LocalAlloc(
+		  LMEM_ZEROINIT,
+		  (lstrlen((LPCTSTR) lpMsgBuf) + lstrlen((LPCTSTR) __FILE__) + 200)
+		  * sizeof(TCHAR));
+		_snprintf((LPTSTR) lpDisplayBuf,
+		          LocalSize(lpDisplayBuf) / sizeof(TCHAR),
+		          TEXT("%s failed with error %d: %s"), __FILE__, dw,
+		          lpMsgBuf);
+
+		cc_log("can't get hostname OS returned error: %s", (char *)lpDisplayBuf);
+
+		LocalFree(lpMsgBuf);
+		LocalFree(lpDisplayBuf);
+	}
+	WSACleanup();
+#endif
+
+	hostname[sizeof(hostname) - 1] = 0;
 	return hostname;
 }
 
@@ -557,10 +655,10 @@ format_hash_as_string(const unsigned char *hash, int size)
 }
 
 char const CACHEDIR_TAG[] =
-	"Signature: 8a477f597d28d172789f06886806bc55\n"
-	"# This file is a cache directory tag created by ccache.\n"
-	"# For information about cache directory tags, see:\n"
-	"#	http://www.brynosaurus.com/cachedir/\n";
+  "Signature: 8a477f597d28d172789f06886806bc55\n"
+  "# This file is a cache directory tag created by ccache.\n"
+  "# For information about cache directory tags, see:\n"
+  "#	http://www.brynosaurus.com/cachedir/\n";
 
 int
 create_cachedirtag(const char *dir)
@@ -613,9 +711,7 @@ format(const char *format, ...)
 	return ptr;
 }
 
-/*
-  this is like strdup() but dies if the malloc fails
-*/
+/* This is like strdup() but dies if the malloc fails. */
 char *
 x_strdup(const char *s)
 {
@@ -627,9 +723,7 @@ x_strdup(const char *s)
 	return ret;
 }
 
-/*
-  this is like strndup() but dies if the malloc fails
-*/
+/* This is like strndup() but dies if the malloc fails. */
 char *
 x_strndup(const char *s, size_t n)
 {
@@ -657,9 +751,7 @@ x_strndup(const char *s, size_t n)
 	return ret;
 }
 
-/*
-  this is like malloc() but dies if the malloc fails
-*/
+/* This is like malloc() but dies if the malloc fails. */
 void *
 x_malloc(size_t size)
 {
@@ -697,9 +789,7 @@ x_calloc(size_t nmemb, size_t size)
 	return ret;
 }
 
-/*
-  this is like realloc() but dies if the malloc fails
-*/
+/* This is like realloc() but dies if the malloc fails. */
 void *
 x_realloc(void *ptr, size_t size)
 {
@@ -722,6 +812,39 @@ void x_unsetenv(const char *name)
 #else
 	putenv(x_strdup(name)); /* Leak to environment. */
 #endif
+}
+
+/* Like fstat() but also call cc_log on failure. */
+int
+x_fstat(int fd, struct stat *buf)
+{
+	int result = fstat(fd, buf);
+	if (result != 0) {
+		cc_log("Failed to fstat fd %d: %s", fd, strerror(errno));
+	}
+	return result;
+}
+
+/* Like lstat() but also call cc_log on failure. */
+int
+x_lstat(const char *pathname, struct stat *buf)
+{
+	int result = lstat(pathname, buf);
+	if (result != 0) {
+		cc_log("Failed to lstat %s: %s", pathname, strerror(errno));
+	}
+	return result;
+}
+
+/* Like stat() but also call cc_log on failure. */
+int
+x_stat(const char *pathname, struct stat *buf)
+{
+	int result = stat(pathname, buf);
+	if (result != 0) {
+		cc_log("Failed to stat %s: %s", pathname, strerror(errno));
+	}
+	return result;
 }
 
 /*
@@ -781,7 +904,7 @@ traverse(const char *dir, void (*fn)(const char *, struct stat *))
 		fname = format("%s/%s", dir, de->d_name);
 		if (lstat(fname, &st)) {
 			if (errno != ENOENT) {
-				perror(fname);
+				fatal("lstat %s failed: %s", fname, strerror(errno));
 			}
 			free(fname);
 			continue;
@@ -987,16 +1110,17 @@ parse_size_with_suffix(const char *str, uint64_t *size)
 		default:
 			return false;
 		}
+	} else {
+		/* Default suffix: G. */
+		x *= 1000 * 1000 * 1000;
 	}
 	*size = x;
 	return true;
 }
 
 
-/*
-  a sane realpath() function, trying to cope with stupid path limits and
-  a broken API
-*/
+/* A sane realpath() function, trying to cope with stupid path limits and a
+ * broken API. */
 char *
 x_realpath(const char *path)
 {
@@ -1012,11 +1136,16 @@ x_realpath(const char *path)
 	p = realpath(path, ret);
 #elif defined(_WIN32)
 	path_handle = CreateFile(
-		path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL, NULL);
-	GetFinalPathNameByHandle(path_handle, ret, maxlen, FILE_NAME_NORMALIZED);
-	CloseHandle(path_handle);
-	p = ret+4;// strip the \\?\ from the file name
+	  path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
+	  FILE_ATTRIBUTE_NORMAL, NULL);
+	if (INVALID_HANDLE_VALUE != path_handle) {
+		GetFinalPathNameByHandle(path_handle, ret, maxlen, FILE_NAME_NORMALIZED);
+		CloseHandle(path_handle);
+		p = ret + 4; /* strip \\?\ from the file name */
+	} else {
+		snprintf(ret, maxlen, "%s", path);
+		p = ret;
+	}
 #else
 	/* yes, there are such systems. This replacement relies on
 	   the fact that when we call x_realpath we only care about symlinks */
@@ -1072,7 +1201,7 @@ strtok_r(char *str, const char *delim, char **saveptr)
 	ret = strtok(str, delim);
 	if (ret) {
 		char *save = ret;
-		while (*save++);
+		while (*save++) ;
 		if ((len + 1) == (intptr_t) (save - str))
 			save--;
 		*saveptr = save;
@@ -1101,6 +1230,11 @@ create_tmp_fd(char **fname)
 	if (fd == -1) {
 		fatal("Failed to create file %s: %s", template, strerror(errno));
 	}
+
+#ifndef _WIN32
+	fchmod(fd, 0666 & ~get_umask());
+#endif
+
 	free(*fname);
 	*fname = template;
 	return fd;
@@ -1248,12 +1382,19 @@ get_relative_path(const char *from, const char *to)
 	const char *p;
 	char *result;
 
-	assert(from && from[0] == '/');
+	assert(from && is_absolute_path(from));
 	assert(to);
 
-	if (!*to || *to != '/') {
+	if (!*to || !is_absolute_path(to)) {
 		return x_strdup(to);
 	}
+
+#ifdef _WIN32
+	// Both paths are absolute, drop the drive letters
+	assert(from[0] == to[0]); // Assume the same drive letter
+	from += 2;
+	to += 2;
+#endif
 
 	result = x_strdup("");
 	common_prefix_len = common_dir_prefix_length(from, to);
@@ -1322,16 +1463,63 @@ update_mtime(const char *path)
 }
 
 /*
+ * If exit() already has been called, call _exit(), otherwise exit(). This is
+ * used to avoid calling exit() inside an atexit handler.
+ */
+void
+x_exit(int status)
+{
+	static bool first_time = true;
+	if (first_time) {
+		first_time = false;
+		exit(status);
+	} else {
+		_exit(status);
+	}
+}
+
+/*
  * Rename oldpath to newpath (deleting newpath).
  */
 int
 x_rename(const char *oldpath, const char *newpath)
 {
-#ifdef _WIN32
+#ifndef _WIN32
+	return rename(oldpath, newpath);
+#else
 	/* Windows' rename() refuses to overwrite an existing file. */
 	unlink(newpath);  /* not x_unlink, as x_unlink calls x_rename */
+	/* If the function succeeds, the return value is nonzero. */
+	if (MoveFileA(oldpath, newpath) == 0) {
+		LPVOID lpMsgBuf;
+		LPVOID lpDisplayBuf;
+		DWORD dw = GetLastError();
+
+		FormatMessage(
+		  FORMAT_MESSAGE_ALLOCATE_BUFFER |
+		  FORMAT_MESSAGE_FROM_SYSTEM |
+		  FORMAT_MESSAGE_IGNORE_INSERTS,
+		  NULL, dw, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR) &lpMsgBuf,
+		  0, NULL);
+
+		lpDisplayBuf = (LPVOID) LocalAlloc(
+		  LMEM_ZEROINIT,
+		  (lstrlen((LPCTSTR) lpMsgBuf) + lstrlen((LPCTSTR) __FILE__) + 40)
+		  * sizeof(TCHAR));
+		_snprintf((LPTSTR) lpDisplayBuf,
+		          LocalSize(lpDisplayBuf) / sizeof(TCHAR),
+		          TEXT("%s failed with error %d: %s"), __FILE__, dw, lpMsgBuf);
+
+		cc_log("can't rename file %s to %s OS returned error: %s",
+		       oldpath, newpath, (char *) lpDisplayBuf);
+
+		LocalFree(lpMsgBuf);
+		LocalFree(lpDisplayBuf);
+		return -1;
+	} else {
+		return 0;
+	}
 #endif
-	return rename(oldpath, newpath);
 }
 
 /*
@@ -1341,8 +1529,13 @@ x_rename(const char *oldpath, const char *newpath)
 int
 tmp_unlink(const char *path)
 {
+	int rc;
 	cc_log("Unlink %s", path);
-	return unlink(path);
+	rc = unlink(path);
+	if (rc) {
+		cc_log("Unlink failed: %s", strerror(errno));
+	}
+	return rc;
 }
 
 /*
@@ -1358,19 +1551,26 @@ x_unlink(const char *path)
 	 */
 	char *tmp_name = format("%s.rm.%s", path, tmp_string());
 	int result = 0;
+	int saved_errno = 0;
 	cc_log("Unlink %s via %s", path, tmp_name);
 	if (x_rename(path, tmp_name) == -1) {
 		result = -1;
+		saved_errno = errno;
 		goto out;
 	}
 	if (unlink(tmp_name) == -1) {
 		/* If it was released in a race, that's OK. */
 		if (errno != ENOENT) {
 			result = -1;
+			saved_errno = errno;
 		}
 	}
 out:
 	free(tmp_name);
+	if (result) {
+		cc_log("x_unlink failed: %s", strerror(saved_errno));
+	}
+	errno = saved_errno;
 	return result;
 }
 
@@ -1406,7 +1606,7 @@ read_file(const char *path, size_t size_hint, char **data, size_t *size)
 
 	if (size_hint == 0) {
 		struct stat st;
-		if (stat(path, &st) == 0) {
+		if (x_stat(path, &st) == 0) {
 			size_hint = st.st_size;
 		}
 	}
@@ -1485,7 +1685,7 @@ expand_variable(const char **str, char **result, char **errmsg)
 	if (curly) {
 		if (*q != '}') {
 			*errmsg = format("syntax error: missing '}' after \"%s\"", p);
-			return NULL;
+			return false;
 		}
 	}
 

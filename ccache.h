@@ -143,6 +143,9 @@ void *x_malloc(size_t size);
 void *x_calloc(size_t nmemb, size_t size);
 void *x_realloc(void *ptr, size_t size);
 void x_unsetenv(const char *name);
+int x_fstat(int fd, struct stat *buf);
+int x_lstat(const char *pathname, struct stat *buf);
+int x_stat(const char *pathname, struct stat *buf);
 void traverse(const char *dir, void (*fn)(const char *, struct stat *));
 char *basename(const char *path);
 char *dirname(const char *path);
@@ -169,6 +172,7 @@ char *get_relative_path(const char *from, const char *to);
 bool is_absolute_path(const char *path);
 bool is_full_path(const char *path);
 void update_mtime(const char *path);
+void x_exit(int status) ATTR_NORETURN;
 int x_rename(const char *oldpath, const char *newpath);
 int tmp_unlink(const char *path);
 int x_unlink(const char *path);
@@ -204,7 +208,7 @@ void stats_summary(struct conf *conf);
 void stats_update_size(uint64_t size, unsigned files);
 void stats_get_obsolete_limits(const char *dir, unsigned *maxfiles,
                                uint64_t *maxsize);
-void stats_set_sizes(const char *dir, size_t num_files, size_t total_size);
+void stats_set_sizes(const char *dir, unsigned num_files, uint64_t total_size);
 void stats_read(const char *path, struct counters *counters);
 void stats_write(const char *path, struct counters *counters);
 
@@ -231,7 +235,7 @@ void wipe_all(struct conf *conf);
 /* ------------------------------------------------------------------------- */
 /* execute.c */
 
-int execute(char **argv, int fd_out, int fd_err);
+int execute(char **argv, int fd_out, int fd_err, pid_t *pid);
 char *find_executable(const char *name, const char *exclude_name);
 void print_command(FILE *fp, char **argv);
 
@@ -245,6 +249,8 @@ void lockfile_release(const char *path);
 /* ccache.c */
 
 extern time_t time_of_compilation;
+void block_signals(void);
+void unblock_signals(void);
 bool cc_process_args(struct args *args, struct args **preprocessor_args,
                     struct args **compiler_args);
 void cc_reset(void);
@@ -273,7 +279,9 @@ typedef int (*COMPAR_FN_T)(const void *, const void *);
 char *win32argvtos(char *prefix, char **argv);
 char *win32getshell(char *path);
 int win32execute(char *path, char **argv, int doreturn,
-                 const char *path_stdout, const char *path_stderr);
+                 int fd_stdout, int fd_stderr);
+void add_exe_ext_if_no_to_fullpath(char *full_path_win_ext, size_t max_size,
+                                   const char *ext, const char *path);
 #    ifndef _WIN32_WINNT
 #    define _WIN32_WINNT 0x0501
 #    endif
@@ -281,8 +289,7 @@ int win32execute(char *path, char **argv, int doreturn,
 #    define mkdir(a,b) mkdir(a)
 #    define link(src,dst) (CreateHardLink(dst,src,NULL) ? 0 : -1)
 #    define lstat(a,b) stat(a,b)
-#    define execv(a,b) win32execute(a,b,0,NULL,NULL)
-#error TODO: Adapt win32execute to new execute API
+#    define execv(a,b) win32execute(a,b,0,-1,-1)
 #    define execute(a,b,c) win32execute(*(a),a,1,b,c)
 #    define PATH_DELIM ";"
 #    define F_RDLCK 0
@@ -291,6 +298,8 @@ int win32execute(char *path, char **argv, int doreturn,
 #    define PATH_DELIM ":"
 #endif
 
+#ifndef MAX
 #define MAX(a, b) (((a) > (b)) ? (a) : (b))
+#endif
 
 #endif /* ifndef CCACHE_H */

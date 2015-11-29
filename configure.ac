@@ -10,13 +10,12 @@ AC_CONFIG_HEADER(config.h)
 AC_CANONICAL_HOST
 
 case $host in
-    *mingw32* | *cygwin* | *wince* | *mingwce*)
+    *mingw32* | *mingw64* | *cygwin* | *wince* | *mingwce*)
+        windows_os=yes
         AC_DEFINE(_WIN32_WINNT,0x0600, Windows Vista or newer is required)
         ;;
 esac
 
-AC_SUBST(extra_cppflags)
-AC_SUBST(extra_ldflags)
 AC_SUBST(extra_libs)
 AC_SUBST(include_dev_mk)
 AC_SUBST(test_suites)
@@ -138,12 +137,16 @@ else
 fi
 
 if test x${use_bundled_zlib} = xyes; then
-    extra_cppflags="-I\$(srcdir)/zlib"
-    extra_ldflags="$extra_ldflags -Lzlib"
+    CPPFLAGS="$CPPFLAGS -I\$(srcdir)/zlib"
     extra_libs="zlib/libz.a"
     mkdir -p zlib
 else
-    extra_ldflags="$extra_ldflags -lz"
+    LIBS="$LIBS -lz"
+fi
+
+dnl Linking on Windows needs ws2_32
+if test x${windows_os} = xyes; then
+    LIBS="$LIBS -lws2_32"
 fi
 
 AC_C_BIGENDIAN

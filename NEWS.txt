@@ -2,6 +2,147 @@ ccache news
 ===========
 
 
+Unreleased ccache 3.2.5
+-----------------------
+
+New features and improvements
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Only pass clang-specific `-stdlib=` to the preprocessor.
+
+
+Bug fixes
+~~~~~~~~~
+
+- Include m4 files used by configure.ac in the source dist archives.
+
+- Corrected "Performance" section in the manual regarding `__DATE_`, `__TIME__`
+  and `__FILE__` macros.
+
+- Fixed build on Solaris 10+ and AIX 7.
+
+
+ccache 3.2.4
+------------
+Release date: 2015-10-08
+
+
+Bug fixes
+~~~~~~~~~
+
+- Fixed build error related to zlib on systems with older make versions
+  (regression in ccache 3.2.3).
+
+- Made conversion-to-bool explicit to avoid build warnings (and potential
+  runtime errors) on legacy systems.
+
+- Improved signal handling: Kill compiler on SIGTERM; wait for compiler to exit
+  before exiting; die appropriately.
+
+- Minor fixes related to Windows support.
+
+- The correct compression level is now used if compression is requested.
+
+- Fixed a bug where cache cleanup could be run too early for caches larger than
+  64 GiB on 32-bit systems.
+
+
+ccache 3.2.3
+------------
+Release date: 2015-08-16
+
+
+New features and improvements
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Added support for compiler option `-gsplit-dwarf`.
+
+
+Bug fixes
+~~~~~~~~~
+
+- Support external zlib in nonstandard directory.
+
+- Avoid calling `exit()` inside an exit handler.
+
+- Let exit handler terminate properly.
+
+- Bail out on compiler option `--save-temps` in addition to `-save-temps`.
+
+- Only log "Disabling direct mode" once when failing to read potential include
+  files.
+
+
+ccache 3.2.2
+------------
+Release date: 2015-05-10
+
+
+New features and improvements
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Added support for `CCACHE_COMPILERCHECK=string:<value>`. This is a faster
+  alternative to `CCACHE_COMPILERCHECK=<command>` if the command's output can
+  be precalculated by the build system.
+
+- Add support for caching code coverage results (compiling for gcov).
+
+
+Bug fixes
+~~~~~~~~~
+
+- Made hash of cached result created with and without `CCACHE_CPP2` different.
+  This makes it possible to rebuild with `CCACHE_CPP2` set without having to
+  clear the cache to get new results.
+
+- Don't try to reset a non-existing stats file. This avoids ``No such file or
+  directory'' messages in the ccache log when the cache directory doesn't
+  exist.
+
+- Fixed a bug where ccache deleted clang diagnostics after compiler failures.
+
+- Avoid performing an unnecessary copy of the object file on a cache miss.
+
+- Bail out on too hard compiler option `-fmodules`.
+
+- Bail out on too hard compiler option `-fplugin=libcc1plugin` (interaction
+  with GDB).
+
+- Fixed build error when compiling ccache with recent clang versions.
+
+- Removed signal-unsafe code from signal handler.
+
+- Corrected logic for when to output cached stderr.
+
+- Wipe the whole cached result on failure retrieving a cached file.
+
+- Fixed build error when compiling ccache with recent clang versions.
+
+
+ccache 3.2.1
+------------
+Release date: 2014-12-10
+
+
+Bug fixes
+~~~~~~~~~
+
+- Fixed regression in temporary file handling, which lead to incorrect
+  permissions for stats, manifest and ccache.conf files in the cache.
+
+- `CACHEDIR.TAG` files are now created in the [0-9a-f] subdirectories so that
+  ccache.conf is not lost in backups.
+
+- Made the default cache size suffix `G`, as previously documented.
+
+- `-fdiagnostics-color=auto` is now passed to the compiler even if stderr is
+  redirected. This fixes a problem when, for instance, a configure test probes
+  if the compiler (wrapped via ccache) supports `-fdiagnostics-color=auto`.
+
+- Added missing documentation for `max_files` and `max_size` configuration
+  options.
+
+
 ccache 3.2
 ----------
 Release date: 2014-11-17
@@ -111,6 +252,26 @@ Bug fixes
 - Fixed race condition when creating the initial cache directory.
 
 - Fixed test suite failures when `CC` is a ccache-wrapped compiler.
+
+
+ccache 3.1.11
+-------------
+Release date: 2015-03-07
+
+
+Bug fixes
+~~~~~~~~~
+
+- Fixed bug which could result in false cache hits when source code contains
+  `'"'` followed by `" /*"` or `" //"` (with variations).
+
+- Made hash of cached result created with and without `CCACHE_CPP2` different.
+  This makes it possible to rebuild with `CCACHE_CPP2` set without having to
+  clear the cache to get new results.
+
+- Don't try to reset a non-existing stats file. This avoids ``No such file or
+  directory'' messages in the ccache log when the cache directory doesn't
+  exist.
 
 
 ccache 3.1.10

@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2002-2004 Andrew Tridgell
- * Copyright (C) 2009-2014 Joel Rosdahl
+ * Copyright (C) 2009-2015 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -78,10 +78,14 @@ static struct {
 	{ STATS_DEVICE,       "output to a non-regular file   ", NULL, 0 },
 	{ STATS_NOINPUT,      "no input file                  ", NULL, 0 },
 	{ STATS_BADEXTRAFILE, "error hashing extra file       ", NULL, 0 },
-	{ STATS_NUMFILES,     "files in cache                 ", NULL, FLAG_NOZERO|FLAG_ALWAYS },
-	{ STATS_TOTALSIZE,    "cache size                     ", display_size_times_1024 , FLAG_NOZERO|FLAG_ALWAYS },
-	{ STATS_OBSOLETE_MAXFILES, "OBSOLETE",                   NULL, FLAG_NOZERO|FLAG_NEVER},
-	{ STATS_OBSOLETE_MAXSIZE, "OBSOLETE",                    NULL, FLAG_NOZERO|FLAG_NEVER},
+	{ STATS_NUMFILES,     "files in cache                 ", NULL,
+		FLAG_NOZERO|FLAG_ALWAYS },
+	{ STATS_TOTALSIZE,    "cache size                     ",
+		display_size_times_1024, FLAG_NOZERO|FLAG_ALWAYS },
+	{ STATS_OBSOLETE_MAXFILES, "OBSOLETE",                   NULL,
+		FLAG_NOZERO|FLAG_NEVER},
+	{ STATS_OBSOLETE_MAXSIZE, "OBSOLETE",                    NULL,
+		FLAG_NOZERO|FLAG_NEVER},
 	{ STATS_NONE, NULL, NULL, 0 }
 };
 
@@ -153,7 +157,7 @@ init_counter_updates(void)
 
 /*
  * Record that a number of bytes and files have been added to the cache. Size
- * is in KiB.
+ * is in bytes.
  */
 void
 stats_update_size(uint64_t size, unsigned files)
@@ -373,7 +377,8 @@ stats_zero(void)
 
 /* Get the per directory limits */
 void
-stats_get_obsolete_limits(const char *dir, unsigned *maxfiles, uint64_t *maxsize)
+stats_get_obsolete_limits(const char *dir, unsigned *maxfiles,
+                          uint64_t *maxsize)
 {
 	struct counters *counters = counters_init(STATS_END);
 	char *sname = format("%s/stats", dir);
@@ -386,7 +391,7 @@ stats_get_obsolete_limits(const char *dir, unsigned *maxfiles, uint64_t *maxsize
 
 /* set the per directory sizes */
 void
-stats_set_sizes(const char *dir, size_t num_files, size_t total_size)
+stats_set_sizes(const char *dir, unsigned num_files, uint64_t total_size)
 {
 	struct counters *counters = counters_init(STATS_END);
 	char *statsfile;

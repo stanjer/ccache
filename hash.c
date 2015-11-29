@@ -86,7 +86,7 @@ hash_string(struct mdfour *md, const char *s)
 void
 hash_string_length(struct mdfour *md, const char *s, int length)
 {
-        hash_buffer(md, s, length);
+	hash_buffer(md, s, length);
 }
 
 void
@@ -128,6 +128,7 @@ hash_file(struct mdfour *md, const char *fname)
 
 	fd = open(fname, O_RDONLY|O_BINARY);
 	if (fd == -1) {
+		cc_log("Failed to open %s: %s", fname, strerror(errno));
 		return false;
 	}
 

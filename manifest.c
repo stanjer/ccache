@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2014 Joel Rosdahl
+ * Copyright (C) 2009-2015 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -71,7 +71,7 @@ static const uint32_t MAX_MANIFEST_ENTRIES = 100;
 static const uint32_t MAX_MANIFEST_FILE_INFO_ENTRIES = 10000;
 
 #define ccache_static_assert(e) \
-	do { enum { ccache_static_assert__ = 1/(e) }; } while (false)
+  do { enum { ccache_static_assert__ = 1/(e) }; } while (false)
 
 struct file_info {
 	/* Index to n_files. */
@@ -160,7 +160,7 @@ free_manifest(struct manifest *mf)
 }
 
 #define READ_BYTE(var) \
-	do { \
+  do { \
 		int ch_; \
 		ch_ = gzgetc(f); \
 		if (ch_ == EOF) { \
@@ -170,7 +170,7 @@ free_manifest(struct manifest *mf)
 	} while (false)
 
 #define READ_INT(size, var) \
-	do { \
+  do { \
 		int ch_; \
 		size_t i_; \
 		(var) = 0; \
@@ -185,7 +185,7 @@ free_manifest(struct manifest *mf)
 	} while (false)
 
 #define READ_STR(var) \
-	do { \
+  do { \
 		char buf_[1024]; \
 		size_t i_; \
 		int ch_; \
@@ -206,7 +206,7 @@ free_manifest(struct manifest *mf)
 	} while (false)
 
 #define READ_BYTES(n, var) \
-	do { \
+  do { \
 		size_t i_; \
 		int ch_; \
 		for (i_ = 0; i_ < (n); i_++) { \
@@ -288,8 +288,8 @@ read_manifest(gzFile f)
 	for (i = 0; i < mf->n_objects; i++) {
 		READ_INT(4, mf->objects[i].n_file_info_indexes);
 		mf->objects[i].file_info_indexes =
-			x_calloc(mf->objects[i].n_file_info_indexes,
-			         sizeof(*mf->objects[i].file_info_indexes));
+		  x_calloc(mf->objects[i].n_file_info_indexes,
+		           sizeof(*mf->objects[i].file_info_indexes));
 		for (j = 0; j < mf->objects[i].n_file_info_indexes; j++) {
 			READ_INT(4, mf->objects[i].file_info_indexes[j]);
 		}
@@ -306,7 +306,7 @@ error:
 }
 
 #define WRITE_INT(size, var) \
-	do { \
+  do { \
 		uint8_t ch_; \
 		size_t i_; \
 		for (i_ = 0; i_ < (size); i_++) { \
@@ -318,14 +318,14 @@ error:
 	} while (false)
 
 #define WRITE_STR(var) \
-	do { \
+  do { \
 		if (gzputs(f, var) == EOF || gzputc(f, '\0') == EOF) { \
 			goto error; \
 		} \
 	} while (false)
 
 #define WRITE_BYTES(n, var) \
-	do { \
+  do { \
 		size_t i_; \
 		for (i_ = 0; i_ < (n); i_++) { \
 			if (gzputc(f, (var)[i_]) == EOF) { \
@@ -393,8 +393,7 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 		st = hashtable_search(hashed_files, path);
 		if (!st) {
 			struct stat file_stat;
-			if (stat(path, &file_stat) == -1) {
-				cc_log("Failed to stat include file %s: %s", path, strerror(errno));
+			if (x_stat(path, &file_stat) != 0) {
 				return 0;
 			}
 			st = x_malloc(sizeof(*st));
@@ -416,8 +415,7 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 			    && MAX(st->mtime, st->ctime) >= time_of_compilation) {
 				cc_log("size/mtime/ctime hit for %s", path);
 				continue;
-			}
-			else {
+			} else {
 				cc_log("size/mtime/ctime miss for %s", path);
 			}
 		}
@@ -533,8 +531,7 @@ get_file_hash_index(struct manifest *mf,
 	    && time_of_compilation > MAX(file_stat.st_mtime, file_stat.st_ctime)) {
 		fi.mtime = file_stat.st_mtime;
 		fi.ctime = file_stat.st_ctime;
-	}
-	else {
+	} else {
 		fi.mtime = -1;
 		fi.ctime = -1;
 	}
@@ -826,7 +823,7 @@ manifest_dump(const char *manifest_path, FILE *stream)
 	for (i = 0; i < mf->n_objects; ++i) {
 		char *hash;
 		fprintf(stream, "  %u:\n", i);
-		fprintf(stream, "    File hash indexes:");
+		fprintf(stream, "    File info indexes:");
 		for (j = 0; j < mf->objects[i].n_file_info_indexes; ++j) {
 			fprintf(stream, " %u", mf->objects[i].file_info_indexes[j]);
 		}

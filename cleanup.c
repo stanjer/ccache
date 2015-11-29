@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2002-2006 Andrew Tridgell
- * Copyright (C) 2009-2014 Joel Rosdahl
+ * Copyright (C) 2009-2015 Joel Rosdahl
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the Free
@@ -68,7 +68,8 @@ traverse_fn(const char *fname, struct stat *st)
 	}
 
 	if (str_startswith(p, ".nfs")) {
-		/* Ignore temporary NFS files that may be left for open but deleted files. */
+		/* Ignore temporary NFS files that may be left for open but deleted
+		 * files. */
 		goto out;
 	}
 
@@ -78,6 +79,10 @@ traverse_fn(const char *fname, struct stat *st)
 			x_unlink(fname);
 			goto out;
 		}
+	}
+
+	if (strstr(p, "CACHEDIR.TAG")) {
+		goto out;
 	}
 
 	if (num_files == allocated) {
@@ -118,7 +123,7 @@ delete_sibling_file(const char *base, const char *extension)
 	if (lstat(path, &st) == 0) {
 		delete_file(path, file_size(&st));
 	} else if (errno != ENOENT) {
-		cc_log("Failed to stat %s (%s)", path, strerror(errno));
+		cc_log("Failed to stat %s: %s", path, strerror(errno));
 	}
 	free(path);
 }
@@ -149,6 +154,7 @@ sort_and_clean(void)
 		ext = get_extension(files[i]->fname);
 		if (str_eq(ext, ".o")
 		    || str_eq(ext, ".d")
+		    || str_eq(ext, ".gcno")
 		    || str_eq(ext, ".dia")
 		    || str_eq(ext, ".stderr")
 		    || str_eq(ext, "")) {
@@ -163,6 +169,7 @@ sort_and_clean(void)
 				 */
 				delete_sibling_file(base, ".o");
 				delete_sibling_file(base, ".d");
+				delete_sibling_file(base, ".gcno");
 				delete_sibling_file(base, ".dia");
 				delete_sibling_file(base, ".stderr");
 				delete_sibling_file(base, ""); /* Object file from ccache 2.4. */

@@ -61,7 +61,8 @@ static const struct {
 	{".HXX", "c++-header"},
 	{".tcc", "c++-header"},
 	{".TCC", "c++-header"},
-	{NULL,  NULL}};
+	{NULL,  NULL}
+};
 
 /*
  * Supported languages and corresponding preprocessed languages.
@@ -84,7 +85,8 @@ static const struct {
 	{"objc++-cpp-output",        "objective-c++-cpp-output"},
 	{"objective-c++-header",     "objective-c++-cpp-output"},
 	{"objective-c++-cpp-output", "objective-c++-cpp-output"},
-	{NULL,  NULL}};
+	{NULL,  NULL}
+};
 
 /*
  * Guess the language of a file based on its extension. Returns NULL if the
@@ -147,7 +149,7 @@ extension_for_language(const char *language)
 bool
 language_is_supported(const char *language)
 {
-	return p_language_for_language(language);
+	return p_language_for_language(language) != NULL;
 }
 
 bool
