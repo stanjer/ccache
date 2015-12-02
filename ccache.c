@@ -260,6 +260,15 @@ static pid_t compiler_pid = 0;
  */
 static const char HASH_PREFIX[] = "3";
 
+static void from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest);
+static void to_fscache(struct args *args);
+#ifdef HAVE_LIBMEMCACHED
+static void from_memcached(enum fromcache_call_mode mode, bool put_object_in_manifest);
+static void to_memcached(struct args *args);
+#endif
+static void (*from_cache)(enum fromcache_call_mode mode, bool put_object_in_manifest);
+static void (*to_cache)(struct args *args);
+
 static void
 add_prefix(struct args *args)
 {
@@ -924,7 +933,7 @@ void update_manifest_file(void)
 
 /* run the real compiler and put the result in cache */
 static void
-to_cache(struct args *args)
+to_fscache(struct args *args)
 {
 	char *tmp_stdout, *tmp_stderr, *tmp_aux, *tmp_cov;
 	char *tmp_dwo = NULL;
@@ -1234,6 +1243,318 @@ to_cache(struct args *args)
 	free(tmp_cov);
 	free(tmp_dwo);
 }
+
+#ifdef HAVE_LIBMEMCACHED
+/* run the real compiler and put the result in cache */
+static void
+to_memcached(struct args *args)
+{
+	char *tmp_stdout, *tmp_stderr, *tmp_aux, *tmp_cov;
+	char *tmp_dwo = NULL;
+	char *data_obj, *data_stderr, *data_dia, *data_dep;
+	size_t size_obj, size_stderr, size_dia, size_dep;
+	struct stat st;
+	int status, tmp_stdout_fd, tmp_stderr_fd;
+	FILE *f;
+
+	tmp_stdout = format("%s.tmp.stdout", cached_obj);
+	tmp_stdout_fd = create_tmp_fd(&tmp_stdout);
+	tmp_stderr = format("%s.tmp.stderr", cached_obj);
+	tmp_stderr_fd = create_tmp_fd(&tmp_stderr);
+
+	if (generating_coverage) {
+		/* gcc has some funny rule about max extension length */
+		if (strlen(get_extension(output_obj)) < 6) {
+			tmp_aux = remove_extension(output_obj);
+		} else {
+			tmp_aux = x_strdup(output_obj);
+		}
+		tmp_cov = format("%s.gcno", tmp_aux);
+		free(tmp_aux);
+	} else {
+		tmp_cov = NULL;
+	}
+
+	/* GCC (at least 4.8 and 4.9) forms the .dwo file name by removing everything
+	 * after (and including) the last "." from the object file name and then
+	 * appending ".dwo".
+	 */
+	if (using_split_dwarf) {
+		char *base_name = remove_extension(output_obj);
+		tmp_dwo = format("%s.dwo", base_name);
+		free(base_name);
+	}
+
+	args_add(args, "-o");
+	args_add(args, output_obj);
+
+	if (output_dia) {
+		args_add(args, "--serialize-diagnostics");
+		args_add(args, output_dia);
+	}
+
+	/* Turn off DEPENDENCIES_OUTPUT when running cc1, because
+	 * otherwise it will emit a line like
+	 *
+	 *  tmp.stdout.vexed.732.o: /home/mbp/.ccache/tmp.stdout.vexed.732.i
+	 */
+	x_unsetenv("DEPENDENCIES_OUTPUT");
+
+	if (conf->run_second_cpp) {
+		args_add(args, input_file);
+	} else {
+		args_add(args, i_tmpfile);
+	}
+
+	cc_log("Running real compiler");
+	status = execute(args->argv, tmp_stdout_fd, tmp_stderr_fd, &compiler_pid);
+	args_pop(args, 3);
+
+	if (x_stat(tmp_stdout, &st) != 0) {
+		/* The stdout file was removed - cleanup in progress? Better bail out. */
+		stats_update(STATS_MISSING);
+		tmp_unlink(tmp_stdout);
+		tmp_unlink(tmp_stderr);
+		if (tmp_cov) {
+			tmp_unlink(tmp_cov);
+		}
+		tmp_unlink(tmp_dwo);
+		failed();
+	}
+	if (st.st_size != 0) {
+		cc_log("Compiler produced stdout");
+		stats_update(STATS_STDOUT);
+		tmp_unlink(tmp_stdout);
+		tmp_unlink(tmp_stderr);
+		if (tmp_cov) {
+			tmp_unlink(tmp_cov);
+		}
+		tmp_unlink(tmp_dwo);
+		failed();
+	}
+	tmp_unlink(tmp_stdout);
+
+	/*
+	 * Merge stderr from the preprocessor (if any) and stderr from the real
+	 * compiler into tmp_stderr.
+	 */
+	if (cpp_stderr) {
+		int fd_cpp_stderr;
+		int fd_real_stderr;
+		int fd_result;
+		char *tmp_stderr2;
+
+		tmp_stderr2 = format("%s.2", tmp_stderr);
+		if (x_rename(tmp_stderr, tmp_stderr2)) {
+			cc_log("Failed to rename %s to %s: %s", tmp_stderr, tmp_stderr2,
+			       strerror(errno));
+			failed();
+		}
+		fd_cpp_stderr = open(cpp_stderr, O_RDONLY | O_BINARY);
+		if (fd_cpp_stderr == -1) {
+			cc_log("Failed opening %s: %s", cpp_stderr, strerror(errno));
+			failed();
+		}
+		fd_real_stderr = open(tmp_stderr2, O_RDONLY | O_BINARY);
+		if (fd_real_stderr == -1) {
+			cc_log("Failed opening %s: %s", tmp_stderr2, strerror(errno));
+			failed();
+		}
+		fd_result = open(tmp_stderr, O_WRONLY | O_CREAT | O_TRUNC | O_BINARY, 0666);
+		if (fd_result == -1) {
+			cc_log("Failed opening %s: %s", tmp_stderr, strerror(errno));
+			failed();
+		}
+		copy_fd(fd_cpp_stderr, fd_result);
+		copy_fd(fd_real_stderr, fd_result);
+		close(fd_cpp_stderr);
+		close(fd_real_stderr);
+		close(fd_result);
+		tmp_unlink(tmp_stderr2);
+		free(tmp_stderr2);
+	}
+
+	if (status != 0) {
+		int fd;
+		cc_log("Compiler gave exit status %d", status);
+		stats_update(STATS_STATUS);
+
+		fd = open(tmp_stderr, O_RDONLY | O_BINARY);
+		if (fd != -1) {
+			/* We can output stderr immediately instead of rerunning the compiler. */
+			copy_fd(fd, 2);
+			close(fd);
+			tmp_unlink(tmp_stderr);
+
+			x_exit(status);
+		}
+
+		tmp_unlink(tmp_stderr);
+		if (tmp_cov) {
+			tmp_unlink(tmp_cov);
+		}
+		tmp_unlink(tmp_dwo);
+
+		failed();
+	}
+
+	if (stat(output_obj, &st) != 0) {
+		cc_log("Compiler didn't produce an object file");
+		stats_update(STATS_NOOUTPUT);
+		failed();
+	}
+	if (st.st_size == 0) {
+		cc_log("Compiler produced an empty object file");
+		stats_update(STATS_EMPTYOUTPUT);
+		failed();
+	}
+
+	if (using_split_dwarf) {
+		if (stat(tmp_dwo, &st) != 0) {
+			cc_log("Compiler didn't produce a split dwarf file");
+			stats_update(STATS_NOOUTPUT);
+			failed();
+		}
+		if (st.st_size == 0) {
+			cc_log("Compiler produced an empty split dwarf file");
+			stats_update(STATS_EMPTYOUTPUT);
+			failed();
+		}
+	}
+
+	if (x_stat(tmp_stderr, &st) != 0) {
+		stats_update(STATS_ERROR);
+		failed();
+	}
+	if (st.st_size > 0) {
+		if (move_uncompressed_file(
+		      tmp_stderr, cached_stderr,
+		      conf->compression ? conf->compression_level : 0) != 0) {
+			cc_log("Failed to move %s to %s: %s", tmp_stderr, cached_stderr,
+			       strerror(errno));
+			stats_update(STATS_ERROR);
+			failed();
+		}
+		cc_log("Stored in cache: %s", cached_stderr);
+		if (!conf->compression
+		    /* If the file was compressed, obtain the size again: */
+		    || (conf->compression && x_stat(cached_stderr, &st) == 0)) {
+			stats_update_size(file_size(&st), 1);
+		}
+	} else {
+		tmp_unlink(tmp_stderr);
+		if (conf->recache) {
+			/* If recaching, we need to remove any previous .stderr. */
+			x_unlink(cached_stderr);
+		}
+	}
+
+	if (generating_coverage) {
+		/* gcc won't generate notes if there is no code */
+		if (stat(tmp_cov, &st) != 0 && errno == ENOENT) {
+			cc_log("Creating placeholder: %s", cached_cov);
+
+			f = fopen(cached_cov, "wb");
+			if (!f) {
+				cc_log("Failed to create %s: %s", cached_cov, strerror(errno));
+				stats_update(STATS_ERROR);
+				failed();
+			}
+			fclose(f);
+			stats_update_size(0, 1);
+		} else {
+			put_file_in_cache(tmp_cov, cached_cov);
+		}
+	}
+
+	if (output_dia) {
+		if (x_stat(output_dia, &st) != 0) {
+			stats_update(STATS_ERROR);
+			failed();
+		}
+		if (st.st_size > 0) {
+			put_file_in_cache(output_dia, cached_dia);
+		}
+	}
+
+	put_file_in_cache(output_obj, cached_obj);
+
+	if (using_split_dwarf) {
+		assert(tmp_dwo);
+		assert(cached_dwo);
+		put_file_in_cache(tmp_dwo, cached_dwo);
+	}
+
+	if (generating_dependencies) {
+		put_file_in_cache(output_dep, cached_dep);
+	}
+	stats_update(STATS_TOCACHE);
+
+	/* Make sure we have a CACHEDIR.TAG in the cache part of cache_dir. This can
+	 * be done almost anywhere, but we might as well do it near the end as we
+	 * save the stat call if we exit early.
+	 */
+	{
+		char *first_level_dir = dirname(stats_file);
+		if (create_cachedirtag(first_level_dir) != 0) {
+			cc_log("Failed to create %s/CACHEDIR.TAG (%s)\n",
+			       first_level_dir, strerror(errno));
+			stats_update(STATS_ERROR);
+			failed();
+		}
+		free(first_level_dir);
+
+		/* Remove any CACHEDIR.TAG on the cache_dir level where it was located in
+		 * previous ccache versions. */
+		if (getpid() % 1000 == 0) {
+			char *path = format("%s/CACHEDIR.TAG", conf->cache_dir);
+			x_unlink(path);
+			free(path);
+		}
+	}
+
+	if (strlen(conf->memcached_conf) > 0 && !conf->read_only_memcached &&
+	    !using_split_dwarf && /* no support for the dwo files just yet */
+	    !generating_coverage) { /* coverage refers to local paths anyway */
+		cc_log("Storing %s in memcached", cached_key);
+		if (!read_file(cached_obj, 0, &data_obj, &size_obj)) {
+			data_obj = NULL;
+			size_obj = 0;
+		}
+		if (!read_file(cached_stderr, 0, &data_stderr, &size_stderr)) {
+			data_stderr = NULL;
+			size_stderr = 0;
+		}
+		if (!read_file(cached_dia, 0, &data_dia, &size_dia)) {
+			data_dia = NULL;
+			size_dia = 0;
+		}
+		if (!read_file(cached_dep, 0, &data_dep, &size_dep)) {
+			data_dep = NULL;
+			size_dep = 0;
+		}
+
+		if (data_obj)
+			memccached_set(cached_key,
+			               data_obj, data_stderr, data_dia, data_dep,
+			               size_obj, size_stderr, size_dia, size_dep);
+
+		free(data_obj);
+		free(data_stderr);
+		free(data_dia);
+		free(data_dep);
+	}
+
+	/* Everything OK. */
+	send_cached_stderr();
+	update_manifest_file();
+
+	free(tmp_stderr);
+	free(tmp_stdout);
+	free(tmp_cov);
+	free(tmp_dwo);
+}
+#endif
 
 /*
  * Find the object file name by running the compiler in preprocessor mode.
@@ -1782,7 +2103,7 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
  * then this function exits with the correct status code, otherwise it returns.
  */
 static void
-from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
+from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 {
 	struct stat st;
 	bool produce_dep_file = false;
@@ -1932,6 +2253,160 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	/* and exit with the right status code */
 	x_exit(0);
 }
+
+#ifdef HAVE_LIBMEMCACHED
+/*
+ * Try to return the compile result from cache. If we can return from cache
+ * then this function exits with the correct status code, otherwise it returns.
+ */
+static void
+from_memcached(enum fromcache_call_mode mode, bool put_object_in_manifest)
+{
+	struct stat st;
+	bool produce_dep_file = false;
+	void *cache = NULL;
+	char *data_obj, *data_stderr, *data_dia, *data_dep;
+	size_t size_obj, size_stderr, size_dia, size_dep;
+
+	/* the user might be disabling cache hits */
+	if (conf->recache) {
+		return;
+	}
+
+	if (stat(cached_obj, &st) != 0) {
+		cc_log("Object file %s not in cache", cached_obj);
+		if (strlen(conf->memcached_conf) > 0 &&
+		    !using_split_dwarf &&
+		    !generating_coverage) {
+			cc_log("Getting %s from memcached", cached_key);
+			cache = memccached_get(cached_key,
+			                       &data_obj, &data_stderr, &data_dia, &data_dep,
+			                       &size_obj, &size_stderr, &size_dia, &size_dep);
+		}
+		if (cache) {
+			write_file(data_obj, cached_obj, size_obj);
+			if (size_stderr > 0)
+				write_file(data_stderr, cached_stderr, size_stderr);
+			if (size_dia > 0)
+				write_file(data_dia, cached_dia, size_dia);
+			if (size_dep > 0)
+				write_file(data_dep, cached_dep, size_dep);
+			memccached_free(cache);
+		} else
+		return;
+	}
+
+	/* Check if the diagnostic file is there. */
+	if (output_dia && stat(cached_dia, &st) != 0) {
+		cc_log("Diagnostic file %s not in cache", cached_dia);
+		return;
+	}
+
+	/*
+	 * Occasionally, e.g. on hard reset, our cache ends up as just filesystem
+	 * meta-data with no content. Catch an easy case of this.
+	 */
+	if (st.st_size == 0) {
+		cc_log("Invalid (empty) object file %s in cache", cached_obj);
+		x_unlink(cached_obj);
+		return;
+	}
+
+	if (using_split_dwarf && !generating_dependencies) {
+		assert(output_dwo);
+	}
+	if (output_dwo) {
+		assert(cached_dwo);
+		if (stat(cached_dwo, &st) != 0) {
+			cc_log("Split dwarf file %s not in cache", cached_dwo);
+			return;
+		}
+		if (st.st_size == 0) {
+			cc_log("Invalid (empty) dwo file %s in cache", cached_dwo);
+			x_unlink(cached_dwo);
+			x_unlink(cached_obj); /* to really invalidate */
+			return;
+		}
+	}
+
+	/*
+	 * (If mode != FROMCACHE_DIRECT_MODE, the dependency file is created by
+	 * gcc.)
+	 */
+	produce_dep_file = generating_dependencies && mode == FROMCACHE_DIRECT_MODE;
+
+	/* If the dependency file should be in the cache, check that it is. */
+	if (produce_dep_file && stat(cached_dep, &st) != 0) {
+		cc_log("Dependency file %s missing in cache", cached_dep);
+		return;
+	}
+
+	/*
+	 * Copy object file from cache. Do so also for FissionDwarf file, cached_dwo,
+	 * when -gsplit-dwarf is specified.
+	 */
+	if (!str_eq(output_obj, "/dev/null")) {
+		get_file_from_cache(cached_obj, output_obj);
+		if (using_split_dwarf) {
+			assert(output_dwo);
+			get_file_from_cache(cached_dwo, output_dwo);
+		}
+	}
+	if (produce_dep_file) {
+		get_file_from_cache(cached_dep, output_dep);
+	}
+	if (generating_coverage && stat(cached_cov, &st) == 0 && st.st_size > 0) {
+		/* gcc won't generate notes if there is no code */
+		get_file_from_cache(cached_cov, output_cov);
+	}
+	if (output_dia) {
+		get_file_from_cache(cached_dia, output_dia);
+	}
+
+	/* Update modification timestamps to save files from LRU cleanup.
+	 * Also gives files a sensible mtime when hard-linking. */
+	update_mtime(cached_obj);
+	update_mtime(cached_stderr);
+	if (produce_dep_file) {
+		update_mtime(cached_dep);
+	}
+	if (generating_coverage) {
+		update_mtime(cached_cov);
+	}
+	if (output_dia) {
+		update_mtime(cached_dia);
+	}
+	if (cached_dwo) {
+		update_mtime(cached_dwo);
+	}
+
+	if (generating_dependencies && mode == FROMCACHE_CPP_MODE) {
+		put_file_in_cache(output_dep, cached_dep);
+	}
+
+	send_cached_stderr();
+
+	if (put_object_in_manifest) {
+		update_manifest_file();
+	}
+
+	/* log the cache hit */
+	switch (mode) {
+	case FROMCACHE_DIRECT_MODE:
+		cc_log("Succeeded getting cached result");
+		stats_update(STATS_CACHEHIT_DIR);
+		break;
+
+	case FROMCACHE_CPP_MODE:
+		cc_log("Succeeded getting cached result");
+		stats_update(STATS_CACHEHIT_CPP);
+		break;
+	}
+
+	/* and exit with the right status code */
+	x_exit(0);
+}
+#endif
 
 /* find the real compiler. We just search the PATH to find a executable of the
  * same name that isn't a link to ourselves */
@@ -2942,9 +3417,17 @@ initialize(void)
 		create_initial_config_file(conf, primary_config_path);
 	}
 
+	from_cache = from_fscache;
+	to_cache = to_fscache;
+
 #ifdef HAVE_LIBMEMCACHED
 	if (strlen(conf->memcached_conf) > 0) {
 		memccached_init(conf->memcached_conf);
+	}
+
+	if (conf->memcached_only) {
+		from_cache = from_memcached;
+		to_cache = to_memcached;
 	}
 #endif
 	exitfn_init();
