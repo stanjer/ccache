@@ -33,6 +33,7 @@ struct conf {
 	unsigned umask;
 	bool unify;
 	char *memcached_conf;
+	bool memcached_only;
 
 	const char **item_origins;
 };
