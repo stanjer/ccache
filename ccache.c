@@ -260,13 +260,16 @@ static pid_t compiler_pid = 0;
  */
 static const char HASH_PREFIX[] = "3";
 
-static void from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest);
+static void from_fscache(enum fromcache_call_mode mode,
+                         bool put_object_in_manifest);
 static void to_fscache(struct args *args);
 #ifdef HAVE_LIBMEMCACHED
-static void from_memcached(enum fromcache_call_mode mode, bool put_object_in_manifest);
+static void from_memcached(enum fromcache_call_mode mode,
+                           bool put_object_in_manifest);
 static void to_memcached(struct args *args);
 #endif
-static void (*from_cache)(enum fromcache_call_mode mode, bool put_object_in_manifest);
+static void (*from_cache)(enum fromcache_call_mode mode,
+                          bool put_object_in_manifest);
 static void (*to_cache)(struct args *args);
 
 static void
@@ -1249,40 +1252,31 @@ to_fscache(struct args *args)
 static void
 to_memcached(struct args *args)
 {
-	char *tmp_stdout, *tmp_stderr, *tmp_aux, *tmp_cov;
-	char *tmp_dwo = NULL;
-	char *data_obj, *data_stderr, *data_dia, *data_dep;
-	size_t size_obj, size_stderr, size_dia, size_dep;
+	const char *tmp_dir = temp_dir();
+	int added_bytes = 0;
+	char *tmp_stdout, *tmp_stderr;
+	char *stderr_d, *obj_d, *dia_d, *dep_d = NULL;
+	size_t stderr_l = 0,  obj_l = 0,  dia_l = 0, dep_l = 0;
 	struct stat st;
 	int status, tmp_stdout_fd, tmp_stderr_fd;
-	FILE *f;
 
-	tmp_stdout = format("%s.tmp.stdout", cached_obj);
+	tmp_stdout = format("%s/%s.tmp.stdout.%s", tmp_dir, cached_obj, tmp_string());
 	tmp_stdout_fd = create_tmp_fd(&tmp_stdout);
-	tmp_stderr = format("%s.tmp.stderr", cached_obj);
+	tmp_stderr = format("%s/%s.tmp.stderr.%s", tmp_dir, cached_obj, tmp_string());
 	tmp_stderr_fd = create_tmp_fd(&tmp_stderr);
 
 	if (generating_coverage) {
-		/* gcc has some funny rule about max extension length */
-		if (strlen(get_extension(output_obj)) < 6) {
-			tmp_aux = remove_extension(output_obj);
-		} else {
-			tmp_aux = x_strdup(output_obj);
-		}
-		tmp_cov = format("%s.gcno", tmp_aux);
-		free(tmp_aux);
-	} else {
-		tmp_cov = NULL;
+		cc_log("No memcached support for coverage yet");
+		failed();
+	}
+	if (using_split_dwarf) {
+		cc_log("No memcached support for split dwarf yet");
+		failed();
 	}
 
-	/* GCC (at least 4.8 and 4.9) forms the .dwo file name by removing everything
-	 * after (and including) the last "." from the object file name and then
-	 * appending ".dwo".
-	 */
-	if (using_split_dwarf) {
-		char *base_name = remove_extension(output_obj);
-		tmp_dwo = format("%s.dwo", base_name);
-		free(base_name);
+	if (create_parent_dirs(tmp_stdout) != 0) {
+		fatal("Failed to create parent directory for %s: %s",
+		      tmp_stdout, strerror(errno));
 	}
 
 	args_add(args, "-o");
@@ -1315,10 +1309,6 @@ to_memcached(struct args *args)
 		stats_update(STATS_MISSING);
 		tmp_unlink(tmp_stdout);
 		tmp_unlink(tmp_stderr);
-		if (tmp_cov) {
-			tmp_unlink(tmp_cov);
-		}
-		tmp_unlink(tmp_dwo);
 		failed();
 	}
 	if (st.st_size != 0) {
@@ -1326,10 +1316,6 @@ to_memcached(struct args *args)
 		stats_update(STATS_STDOUT);
 		tmp_unlink(tmp_stdout);
 		tmp_unlink(tmp_stderr);
-		if (tmp_cov) {
-			tmp_unlink(tmp_cov);
-		}
-		tmp_unlink(tmp_dwo);
 		failed();
 	}
 	tmp_unlink(tmp_stdout);
@@ -1390,11 +1376,6 @@ to_memcached(struct args *args)
 		}
 
 		tmp_unlink(tmp_stderr);
-		if (tmp_cov) {
-			tmp_unlink(tmp_cov);
-		}
-		tmp_unlink(tmp_dwo);
-
 		failed();
 	}
 
@@ -1409,85 +1390,53 @@ to_memcached(struct args *args)
 		failed();
 	}
 
-	if (using_split_dwarf) {
-		if (stat(tmp_dwo, &st) != 0) {
-			cc_log("Compiler didn't produce a split dwarf file");
-			stats_update(STATS_NOOUTPUT);
-			failed();
-		}
-		if (st.st_size == 0) {
-			cc_log("Compiler produced an empty split dwarf file");
-			stats_update(STATS_EMPTYOUTPUT);
-			failed();
-		}
-	}
-
 	if (x_stat(tmp_stderr, &st) != 0) {
 		stats_update(STATS_ERROR);
 		failed();
 	}
-	if (st.st_size > 0) {
-		if (move_uncompressed_file(
-		      tmp_stderr, cached_stderr,
-		      conf->compression ? conf->compression_level : 0) != 0) {
-			cc_log("Failed to move %s to %s: %s", tmp_stderr, cached_stderr,
-			       strerror(errno));
-			stats_update(STATS_ERROR);
-			failed();
-		}
-		cc_log("Stored in cache: %s", cached_stderr);
-		if (!conf->compression
-		    /* If the file was compressed, obtain the size again: */
-		    || (conf->compression && x_stat(cached_stderr, &st) == 0)) {
-			stats_update_size(file_size(&st), 1);
-		}
-	} else {
-		tmp_unlink(tmp_stderr);
-		if (conf->recache) {
-			/* If recaching, we need to remove any previous .stderr. */
-			x_unlink(cached_stderr);
-		}
+	/* cache stderr */
+	if (!read_file(tmp_stderr, 0, &stderr_d, &stderr_l)) {
+		stats_update(STATS_ERROR);
+		failed();
 	}
-
-	if (generating_coverage) {
-		/* gcc won't generate notes if there is no code */
-		if (stat(tmp_cov, &st) != 0 && errno == ENOENT) {
-			cc_log("Creating placeholder: %s", cached_cov);
-
-			f = fopen(cached_cov, "wb");
-			if (!f) {
-				cc_log("Failed to create %s: %s", cached_cov, strerror(errno));
-				stats_update(STATS_ERROR);
-				failed();
-			}
-			fclose(f);
-			stats_update_size(0, 1);
-		} else {
-			put_file_in_cache(tmp_cov, cached_cov);
-		}
-	}
+	tmp_unlink(tmp_stderr);
+	added_bytes += stderr_l;
 
 	if (output_dia) {
 		if (x_stat(output_dia, &st) != 0) {
 			stats_update(STATS_ERROR);
 			failed();
 		}
-		if (st.st_size > 0) {
-			put_file_in_cache(output_dia, cached_dia);
+		/* cache dia */
+		if (!read_file(output_dia, 0, &dia_d, &dia_l)) {
+			stats_update(STATS_ERROR);
+			failed();
 		}
+		added_bytes += dia_l;
 	}
 
-	put_file_in_cache(output_obj, cached_obj);
-
-	if (using_split_dwarf) {
-		assert(tmp_dwo);
-		assert(cached_dwo);
-		put_file_in_cache(tmp_dwo, cached_dwo);
+	/* cache output */
+	if (!read_file(output_obj, 0, &obj_d, &obj_l)) {
+		stats_update(STATS_ERROR);
+		failed();
 	}
 
 	if (generating_dependencies) {
-		put_file_in_cache(output_dep, cached_dep);
+		if (!read_file(output_dep, 0, &dep_d, &dep_l)) {
+			stats_update(STATS_ERROR);
+			failed();
+		}
+		added_bytes += dep_l;
 	}
+
+	if (memccached_set(cached_key, obj_d, stderr_d, dia_d, dep_d,
+	                   obj_l, stderr_l, dia_l, dep_l) < 0) {
+		stats_update(STATS_ERROR);
+		failed();
+	}
+
+	cc_log("Storing %s in memcached", cached_key);
+
 	stats_update(STATS_TOCACHE);
 
 	/* Make sure we have a CACHEDIR.TAG in the cache part of cache_dir. This can
@@ -1513,46 +1462,12 @@ to_memcached(struct args *args)
 		}
 	}
 
-	if (strlen(conf->memcached_conf) > 0 && !conf->read_only_memcached &&
-	    !using_split_dwarf && /* no support for the dwo files just yet */
-	    !generating_coverage) { /* coverage refers to local paths anyway */
-		cc_log("Storing %s in memcached", cached_key);
-		if (!read_file(cached_obj, 0, &data_obj, &size_obj)) {
-			data_obj = NULL;
-			size_obj = 0;
-		}
-		if (!read_file(cached_stderr, 0, &data_stderr, &size_stderr)) {
-			data_stderr = NULL;
-			size_stderr = 0;
-		}
-		if (!read_file(cached_dia, 0, &data_dia, &size_dia)) {
-			data_dia = NULL;
-			size_dia = 0;
-		}
-		if (!read_file(cached_dep, 0, &data_dep, &size_dep)) {
-			data_dep = NULL;
-			size_dep = 0;
-		}
-
-		if (data_obj)
-			memccached_set(cached_key,
-			               data_obj, data_stderr, data_dia, data_dep,
-			               size_obj, size_stderr, size_dia, size_dep);
-
-		free(data_obj);
-		free(data_stderr);
-		free(data_dia);
-		free(data_dep);
-	}
-
 	/* Everything OK. */
 	send_cached_stderr();
 	update_manifest_file();
 
 	free(tmp_stderr);
 	free(tmp_stdout);
-	free(tmp_cov);
-	free(tmp_dwo);
 }
 #endif
 
@@ -2262,71 +2177,23 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 static void
 from_memcached(enum fromcache_call_mode mode, bool put_object_in_manifest)
 {
-	struct stat st;
 	bool produce_dep_file = false;
-	void *cache = NULL;
+	int ret;
+	void *cache;
 	char *data_obj, *data_stderr, *data_dia, *data_dep;
 	size_t size_obj, size_stderr, size_dia, size_dep;
 
 	/* the user might be disabling cache hits */
-	if (conf->recache) {
+	if (conf->recache || using_split_dwarf || generating_coverage) {
 		return;
 	}
 
-	if (stat(cached_obj, &st) != 0) {
-		cc_log("Object file %s not in cache", cached_obj);
-		if (strlen(conf->memcached_conf) > 0 &&
-		    !using_split_dwarf &&
-		    !generating_coverage) {
-			cc_log("Getting %s from memcached", cached_key);
-			cache = memccached_get(cached_key,
-			                       &data_obj, &data_stderr, &data_dia, &data_dep,
-			                       &size_obj, &size_stderr, &size_dia, &size_dep);
-		}
-		if (cache) {
-			write_file(data_obj, cached_obj, size_obj);
-			if (size_stderr > 0)
-				write_file(data_stderr, cached_stderr, size_stderr);
-			if (size_dia > 0)
-				write_file(data_dia, cached_dia, size_dia);
-			if (size_dep > 0)
-				write_file(data_dep, cached_dep, size_dep);
-			memccached_free(cache);
-		} else
+	cc_log("Getting %s from memcached", cached_key);
+	cache = memccached_get(cached_key,
+	                       &data_obj, &data_stderr, &data_dia, &data_dep,
+	                       &size_obj, &size_stderr, &size_dia, &size_dep);
+	if (cache == NULL) {
 		return;
-	}
-
-	/* Check if the diagnostic file is there. */
-	if (output_dia && stat(cached_dia, &st) != 0) {
-		cc_log("Diagnostic file %s not in cache", cached_dia);
-		return;
-	}
-
-	/*
-	 * Occasionally, e.g. on hard reset, our cache ends up as just filesystem
-	 * meta-data with no content. Catch an easy case of this.
-	 */
-	if (st.st_size == 0) {
-		cc_log("Invalid (empty) object file %s in cache", cached_obj);
-		x_unlink(cached_obj);
-		return;
-	}
-
-	if (using_split_dwarf && !generating_dependencies) {
-		assert(output_dwo);
-	}
-	if (output_dwo) {
-		assert(cached_dwo);
-		if (stat(cached_dwo, &st) != 0) {
-			cc_log("Split dwarf file %s not in cache", cached_dwo);
-			return;
-		}
-		if (st.st_size == 0) {
-			cc_log("Invalid (empty) dwo file %s in cache", cached_dwo);
-			x_unlink(cached_dwo);
-			x_unlink(cached_obj); /* to really invalidate */
-			return;
-		}
 	}
 
 	/*
@@ -2335,56 +2202,41 @@ from_memcached(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	 */
 	produce_dep_file = generating_dependencies && mode == FROMCACHE_DIRECT_MODE;
 
-	/* If the dependency file should be in the cache, check that it is. */
-	if (produce_dep_file && stat(cached_dep, &st) != 0) {
-		cc_log("Dependency file %s missing in cache", cached_dep);
-		return;
+	if (!str_eq(output_obj, "/dev/null")) {
+		x_unlink(output_obj);
+		ret = write_file(data_obj, output_obj, size_obj);
+	} else {
+		ret = 0;
+	}
+	if (ret < 0) {
+		cc_log("Problem creating %s from %s", output_obj, cached_key);
+		failed();
 	}
 
-	/*
-	 * Copy object file from cache. Do so also for FissionDwarf file, cached_dwo,
-	 * when -gsplit-dwarf is specified.
-	 */
-	if (!str_eq(output_obj, "/dev/null")) {
-		get_file_from_cache(cached_obj, output_obj);
-		if (using_split_dwarf) {
-			assert(output_dwo);
-			get_file_from_cache(cached_dwo, output_dwo);
+	if (produce_dep_file) {
+		x_unlink(output_dep);
+		ret = write_file(data_dep, output_dep, size_dep);
+		if (ret < 0) {
+			cc_log("Problem creating %s from %s", output_dep, cached_key);
+			failed();
 		}
 	}
-	if (produce_dep_file) {
-		get_file_from_cache(cached_dep, output_dep);
-	}
-	if (generating_coverage && stat(cached_cov, &st) == 0 && st.st_size > 0) {
-		/* gcc won't generate notes if there is no code */
-		get_file_from_cache(cached_cov, output_cov);
-	}
 	if (output_dia) {
-		get_file_from_cache(cached_dia, output_dia);
-	}
-
-	/* Update modification timestamps to save files from LRU cleanup.
-	 * Also gives files a sensible mtime when hard-linking. */
-	update_mtime(cached_obj);
-	update_mtime(cached_stderr);
-	if (produce_dep_file) {
-		update_mtime(cached_dep);
-	}
-	if (generating_coverage) {
-		update_mtime(cached_cov);
-	}
-	if (output_dia) {
-		update_mtime(cached_dia);
-	}
-	if (cached_dwo) {
-		update_mtime(cached_dwo);
+		x_unlink(output_dia);
+		ret = write_file(data_dia, output_dia, size_dia);
+		if (ret < 0) {
+			cc_log("Problem creating %s from %s", output_dia, cached_key);
+			failed();
+		}
 	}
 
 	if (generating_dependencies && mode == FROMCACHE_CPP_MODE) {
-		put_file_in_cache(output_dep, cached_dep);
+		/* Store the dependency file in the cache. */
+		cc_log("Does not support non direct mode");
 	}
 
-	send_cached_stderr();
+	/* Send the stderr, if any. */
+	safe_write(2, data_stderr, size_stderr);
 
 	if (put_object_in_manifest) {
 		update_manifest_file();
