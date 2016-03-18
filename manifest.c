@@ -702,6 +702,7 @@ manifest_get(struct conf *conf, const char *manifest_path)
 	if (statc) {
 		memcached_return_t error;
 		memcached_server_add_unix_socket(statc, "/tmp/ccache.sock");
+		memcached_behavior_set(statc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
 		error = memcached_version(statc);
 		if (error != MEMCACHED_SUCCESS) {
 			memcached_free(statc);
