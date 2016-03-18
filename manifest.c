@@ -24,6 +24,10 @@
 
 #include <zlib.h>
 
+#ifdef HAVE_LIBMEMCACHED
+#include <libmemcached/memcached.h>
+#endif
+
 /*
  * Sketchy specification of the manifest disk format:
  *
@@ -69,6 +73,11 @@
 static const uint32_t MAGIC = 0x63436d46U;
 static const uint32_t MAX_MANIFEST_ENTRIES = 100;
 static const uint32_t MAX_MANIFEST_FILE_INFO_ENTRIES = 10000;
+
+#ifdef HAVE_LIBMEMCACHED
+static memcached_st *statc;
+static char *cwd;
+#endif
 
 #define ccache_static_assert(e) \
   do { enum { ccache_static_assert__ = 1/(e) }; } while (false)
@@ -123,6 +132,13 @@ struct file_stats {
 	int64_t mtime;
 	int64_t ctime;
 };
+
+#ifdef HAVE_LIBMEMCACHED
+struct cache {
+	struct file_stats stat;
+	struct file_hash hash;
+};
+#endif
 
 static unsigned int
 hash_from_file_info(void *key)
@@ -383,6 +399,10 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 	struct file_hash *actual;
 	struct mdfour hash;
 	int result;
+#ifdef HAVE_LIBMEMCACHED
+	memcached_return_t error;
+	bool found;
+#endif
 
 	for (i = 0; i < obj->n_file_info_indexes; i++) {
 		struct file_info *fi = &mf->file_infos[obj->file_info_indexes[i]];
@@ -418,6 +438,36 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 		}
 
 		actual = hashtable_search(hashed_files, path);
+#ifdef HAVE_LIBMEMCACHED
+		found = false;
+		if (statc && !actual) {
+			char *key;
+			void *value;
+			size_t value_length;
+			uint32_t flags;
+		        if (is_absolute_path(path))
+				key = x_strdup(path);
+			else
+				key = format("%s/%s", cwd, path);
+			value = memcached_get(statc, key, strlen(key),
+		                              &value_length, &flags, &error);
+			if (value && value_length == sizeof(struct cache)) {
+				struct cache *cache = (struct cache *) value;
+				if (st->size == cache->stat.size &&
+				    st->mtime == cache->stat.mtime &&
+				    st->mtime == cache->stat.mtime) {
+					actual = x_malloc(sizeof(*actual));
+					memcpy(actual, &cache->hash, sizeof(*actual));
+					hashtable_insert(hashed_files, x_strdup(path), actual);
+					found = true;
+				}
+			}
+			if (error != MEMCACHED_SUCCESS || true) {
+				cc_log("cache get: %s %s", path, memcached_strerror(statc, error));
+			}
+			free(key);
+		}
+#endif
 		if (!actual) {
 			actual = x_malloc(sizeof(*actual));
 			hash_start(&hash);
@@ -439,6 +489,24 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 		    || fi->size != actual->size) {
 			return 0;
 		}
+#ifdef HAVE_LIBMEMCACHED
+		if (statc && !found) {
+			struct cache cache;
+			char *key;
+			memcpy(&cache.stat, st, sizeof(cache.stat));
+			memcpy(&cache.hash, actual, sizeof(cache.hash));
+		        if (is_absolute_path(path))
+				key = x_strdup(path);
+			else
+				key = format("%s/%s", cwd, path);
+			error = memcached_set(statc, key, strlen(key),
+		                              (void *) &cache, sizeof(cache), 0, 0);
+			if (error != MEMCACHED_SUCCESS || true) {
+				cc_log("cache set: %s %s", path, memcached_strerror(statc, error));
+			}
+			free(key);
+		}
+#endif
 	}
 
 	return 1;
@@ -629,6 +697,13 @@ manifest_get(struct conf *conf, const char *manifest_path)
 		cc_log("Error reading manifest file");
 		goto out;
 	}
+#ifdef HAVE_LIBMEMCACHED
+	statc = memcached_create(NULL);
+	if (statc) {
+		memcached_server_add_unix_socket(statc, "/tmp/ccache.sock");
+	}
+	cwd = get_cwd();
+#endif
 
 	hashed_files = create_hashtable(1000, hash_from_string, strings_equal);
 	stated_files = create_hashtable(1000, hash_from_string, strings_equal);
@@ -656,6 +731,12 @@ out:
 	if (mf) {
 		free_manifest(mf);
 	}
+#ifdef HAVE_LIBMEMCACHED
+	if (statc) {
+		memcached_free(statc);
+	}
+	free(cwd);
+#endif
 	return fh;
 }
 
