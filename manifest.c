@@ -700,7 +700,13 @@ manifest_get(struct conf *conf, const char *manifest_path)
 #ifdef HAVE_LIBMEMCACHED
 	statc = memcached_create(NULL);
 	if (statc) {
+		memcached_return_t error;
 		memcached_server_add_unix_socket(statc, "/tmp/ccache.sock");
+		error = memcached_version(statc);
+		if (error != MEMCACHED_SUCCESS) {
+			memcached_free(statc);
+			statc = NULL;
+		}
 	}
 	cwd = get_cwd();
 #endif
