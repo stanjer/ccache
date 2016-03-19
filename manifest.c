@@ -463,7 +463,7 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 					found = true;
 				}
 			}
-			if (error != MEMCACHED_SUCCESS || true) {
+			if (error != MEMCACHED_SUCCESS && error != MEMCACHED_NOTFOUND) {
 				cc_log("cache get: %s %s", path, memcached_strerror(statc, error));
 			}
 			free(key);
@@ -502,7 +502,7 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 				key = format("%s/%s", cwd, path);
 			error = memcached_set(statc, key, strlen(key),
 			                      (void *) &cache, sizeof(cache), 0, 0);
-			if (error != MEMCACHED_SUCCESS || true) {
+			if (error != MEMCACHED_SUCCESS) {
 				cc_log("cache set: %s %s", path, memcached_strerror(statc, error));
 			}
 			free(key);
