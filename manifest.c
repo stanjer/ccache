@@ -445,12 +445,12 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 			void *value;
 			size_t value_length;
 			uint32_t flags;
-		        if (is_absolute_path(path))
+			if (is_absolute_path(path))
 				key = x_strdup(path);
 			else
 				key = format("%s/%s", cwd, path);
 			value = memcached_get(statc, key, strlen(key),
-		                              &value_length, &flags, &error);
+			                      &value_length, &flags, &error);
 			if (value && value_length == sizeof(struct cache)) {
 				struct cache *cache = (struct cache *) value;
 				if (st->size == cache->stat.size &&
@@ -495,12 +495,12 @@ verify_object(struct conf *conf, struct manifest *mf, struct object *obj,
 			char *key;
 			memcpy(&cache.stat, st, sizeof(cache.stat));
 			memcpy(&cache.hash, actual, sizeof(cache.hash));
-		        if (is_absolute_path(path))
+			if (is_absolute_path(path))
 				key = x_strdup(path);
 			else
 				key = format("%s/%s", cwd, path);
 			error = memcached_set(statc, key, strlen(key),
-		                              (void *) &cache, sizeof(cache), 0, 0);
+			                      (void *) &cache, sizeof(cache), 0, 0);
 			if (error != MEMCACHED_SUCCESS || true) {
 				cc_log("cache set: %s %s", path, memcached_strerror(statc, error));
 			}
