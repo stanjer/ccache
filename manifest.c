@@ -75,6 +75,7 @@ static const uint32_t MAX_MANIFEST_ENTRIES = 100;
 static const uint32_t MAX_MANIFEST_FILE_INFO_ENTRIES = 10000;
 
 #ifdef HAVE_LIBMEMCACHED
+static char *statsock;
 static memcached_st *statc;
 static char *cwd;
 #endif
@@ -698,16 +699,21 @@ manifest_get(struct conf *conf, const char *manifest_path)
 		goto out;
 	}
 #ifdef HAVE_LIBMEMCACHED
-	statc = memcached_create(NULL);
-	if (statc) {
-		memcached_return_t error;
-		memcached_server_add_unix_socket(statc, "/tmp/ccache.sock");
-		memcached_behavior_set(statc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
-		error = memcached_version(statc);
-		if (error != MEMCACHED_SUCCESS) {
-			memcached_free(statc);
-			statc = NULL;
+	statsock = getenv("CCACHE_MEMCACHED_STAT");
+	if (statsock) {
+		statc = memcached_create(NULL);
+		if (statc) {
+			memcached_return_t error;
+			memcached_server_add_unix_socket(statc, statsock);
+			memcached_behavior_set(statc, MEMCACHED_BEHAVIOR_BINARY_PROTOCOL, 1);
+			error = memcached_version(statc);
+			if (error != MEMCACHED_SUCCESS) {
+				memcached_free(statc);
+				statc = NULL;
+			}
 		}
+	} else {
+		statc = NULL;
 	}
 	cwd = get_cwd();
 #endif
