@@ -814,7 +814,7 @@ put_file_in_cache(const char *source, const char *dest)
 		x_unlink(dest);
 		ret = link(source, dest);
 	} else {
-		ret = copy_file(
+		ret = copy_uncompressed_file(
 		  source, dest, conf->compression ? conf->compression_level : 0);
 	}
 	if (ret != 0) {
@@ -839,11 +839,14 @@ static void
 get_file_from_cache(const char *source, const char *dest)
 {
 	int ret;
-	bool do_link = conf->hard_link && !file_is_compressed(source);
+	bool is_compressed = file_is_compressed(source);
+	bool do_link = conf->hard_link && !is_compressed;
 
 	if (do_link) {
 		x_unlink(dest);
 		ret = link(source, dest);
+	} else if (!is_compressed) {
+		ret = copy_uncompressed_file(source, dest, 0);
 	} else {
 		ret = copy_file(source, dest, 0);
 	}
