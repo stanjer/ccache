@@ -421,7 +421,14 @@ int
 copy_uncompressed_file(const char *src, const char *dest, int compress_level)
 {
 	int fd_in, fd_out;
+#ifdef HAVE_SPLICE
+	int pipefd[2];
+	size_t bs = 65536;
+	int flags = SPLICE_F_MOVE | SPLICE_F_MORE;
+	int errnum;
+#else
 	char buf[16384];
+#endif
 	int n, written;
 	char *tmp_name;
 	int saved_errno = 0;
@@ -443,10 +450,23 @@ copy_uncompressed_file(const char *src, const char *dest, int compress_level)
 		goto error;
 	}
 
+#ifdef HAVE_SPLICE
+	errnum = pipe(pipefd);
+	if (errnum) {
+		cc_log("pipe error: %s", strerror(errnum));
+		goto error;
+	}
+
+	while ((n = splice(fd_in, NULL, pipefd[1], NULL, bs, flags)) > 0) {
+		written = 0;
+		do {
+			ssize_t count = splice(pipefd[0], NULL, fd_out, NULL, n - written, flags);
+#else
 	while ((n = read(fd_in, buf, sizeof(buf))) > 0) {
 		written = 0;
 		do {
 			ssize_t count = write(fd_out, buf + written, n - written);
+#endif
 			if (count == -1 && errno != EINTR) {
 				saved_errno = errno;
 				break;
@@ -469,6 +489,10 @@ copy_uncompressed_file(const char *src, const char *dest, int compress_level)
 		return -1;
 	}
 
+#ifdef HAVE_SPLICE
+	close(pipefd[0]);
+	close(pipefd[1]);
+#endif
 	close(fd_in);
 	fd_in = -1;
 
@@ -502,6 +526,12 @@ error:
 	}
 	tmp_unlink(tmp_name);
 	free(tmp_name);
+#ifdef HAVE_SPLICE
+	if (errno == EINVAL) {
+		/* target file system does not support splice */
+		return copy_file(src, dest, compress_level);
+	}
+#endif
 	errno = saved_errno;
 	return -1;
 }
