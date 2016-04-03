@@ -425,12 +425,13 @@ copy_uncompressed_file(const char *src, const char *dest, int compress_level)
 	int pipefd[2];
 	size_t bs = 65536;
 	int flags = SPLICE_F_MOVE | SPLICE_F_MORE;
-	int errnum;
 #else
 	char buf[16384];
 #endif
 	int n, written;
 	char *tmp_name;
+	struct stat st;
+	int errnum;
 	int saved_errno = 0;
 
 	if (compress_level > 0) {
@@ -448,6 +449,26 @@ copy_uncompressed_file(const char *src, const char *dest, int compress_level)
 		saved_errno = errno;
 		cc_log("open error: %s", strerror(saved_errno));
 		goto error;
+	}
+
+	if (!x_fstat(fd_in, &st) && false) {
+		size_t filesize = st.st_size;
+#ifdef HAVE_POSIX_FADVISE
+		posix_fadvise(fd_in, 0, filesize, POSIX_FADV_WILLNEED);
+		posix_fadvise(fd_in, 0, filesize, POSIX_FADV_SEQUENTIAL);
+#endif
+#ifdef HAVE_POSIX_ALLOCATE
+#ifdef __linux__
+		fallocate(fd_out, 0, 0, filesize);
+#else
+		posix_fallocate(fd_out, 0, filesize);
+#endif
+#endif
+		errnum = ftruncate(fd_out, filesize);
+		if (errnum) {
+			cc_log("truncate error: %s", strerror(errnum));
+			goto error;
+		}
 	}
 
 #ifdef HAVE_SPLICE
