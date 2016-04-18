@@ -489,13 +489,13 @@ get_current_working_dir(void)
  * sublevels if needed. Caller frees.
  */
 static char *
-get_path_in_cache(const char *name, const char *suffix)
+get_path_in_cache(const char *dir, const char *name, const char *suffix)
 {
 	unsigned i;
 	char *path;
 	char *result;
 
-	path = x_strdup(conf->cache_dir);
+	path = x_strdup(dir);
 	for (i = 0; i < conf->cache_dir_levels; ++i) {
 		char *p = format("%s/%c", path, name[i]);
 		free(path);
@@ -1297,16 +1297,18 @@ static void
 update_cached_result_globals(struct file_hash *hash)
 {
 	char *object_name;
+	const char *cache_dir;
+	cache_dir = conf->cache_dir;
 	object_name = format_hash_as_string(hash->hash, hash->size);
 	cached_obj_hash = hash;
-	cached_obj = get_path_in_cache(object_name, ".o");
-	cached_stderr = get_path_in_cache(object_name, ".stderr");
-	cached_dep = get_path_in_cache(object_name, ".d");
-	cached_cov = get_path_in_cache(object_name, ".gcno");
-	cached_dia = get_path_in_cache(object_name, ".dia");
+	cached_obj = get_path_in_cache(cache_dir, object_name, ".o");
+	cached_stderr = get_path_in_cache(cache_dir, object_name, ".stderr");
+	cached_dep = get_path_in_cache(cache_dir, object_name, ".d");
+	cached_cov = get_path_in_cache(cache_dir, object_name, ".gcno");
+	cached_dia = get_path_in_cache(cache_dir, object_name, ".dia");
 
 	if (using_split_dwarf) {
-		cached_dwo = get_path_in_cache(object_name, ".dwo");
+		cached_dwo = get_path_in_cache(cache_dir, object_name, ".dwo");
 	} else {
 		cached_dwo = NULL;
 	}
@@ -1689,8 +1691,13 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 			return NULL;
 		}
 		manifest_name = hash_result(hash);
-		manifest_path = get_path_in_cache(manifest_name, ".manifest");
+		manifest_path = get_path_in_cache(conf->cache_dir, manifest_name, ".manifest");
 		free(manifest_name);
+		/* Check if the manifest file is there. */
+		if (stat(manifest_path, &st) != 0) {
+			cc_log("Manifest file %s not in cache", manifest_path);
+			return NULL;
+		}
 		cc_log("Looking for object file hash in %s", manifest_path);
 		object_hash = manifest_get(conf, manifest_path);
 		if (object_hash) {
