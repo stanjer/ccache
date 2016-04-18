@@ -2412,6 +2412,48 @@ b"
 b"
 }
 
+external_suite() {
+    ##################################################################
+    # Create some code to compile.
+    cat <<EOF >test.c
+int test;
+EOF
+
+    ##################################################################
+    # Check that we can get internal hits
+    testname="internal cache dir"
+    checkstat 'cache hit (preprocessed)' 0
+    checkstat 'cache miss' 0
+    checkstat 'files in cache' 0
+
+    $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 0
+
+    $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 1
+
+    $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 2
+
+    checkstat 'cache miss' 1
+
+    ##################################################################
+    # Check that we can get external hits
+    testname="external cache dir"
+    mv $CCACHE_DIR external
+    checkstat 'files in cache' 0
+
+    CCACHE_EXTERNAL=external $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 1
+
+    CCACHE_EXTERNAL=external $CCACHE $COMPILER -c test.c
+    checkstat 'cache hit (preprocessed)' 2
+
+    checkstat 'cache miss' 0
+
+    rm -rf external
+}
+
 ######################################################################
 # main program
 
@@ -2524,6 +2566,7 @@ cleanup
 pch
 upgrade
 prefix
+external
 "
 
 case $host_os in
