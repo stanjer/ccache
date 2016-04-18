@@ -1237,8 +1237,12 @@ to_cache(struct args *args)
 	if (strlen(conf->external) > 0) {
 		if (generating_dependencies)
 			put_file_in_external(conf->external, cached_dep, cached_key, ".d");
+		if (generating_coverage)
+			put_file_in_external(conf->external, cached_cov, cached_key, ".gcno");
 		if (output_dia)
 			put_file_in_external(conf->external, cached_dia, cached_key, ".dia");
+		if (using_split_dwarf)
+			put_file_in_external(conf->external, cached_dwo, cached_key, ".dwo");
 		put_file_in_external(conf->external, cached_stderr, cached_key, ".stderr");
 		put_file_in_external(conf->external, cached_obj, cached_key, ".o");
 	}
@@ -1810,8 +1814,12 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 		if (strlen(conf->external) > 0) {
 			if (generating_dependencies)
 				get_file_from_external(conf->external, cached_dep, cached_key, ".d");
+			if (generating_coverage)
+				get_file_from_external(conf->external, cached_cov, cached_key, ".gcno");
 			if (output_dia)
 				get_file_from_external(conf->external, cached_dia, cached_key, ".dia");
+			if (using_split_dwarf)
+				get_file_from_external(conf->external, cached_dwo, cached_key, ".dwo");
 			get_file_from_external(conf->external, cached_stderr, cached_key, ".stderr");
 			get_file_from_external(conf->external, cached_obj, cached_key, ".o");
 			if (stat(cached_obj, &st) == 0) {
