@@ -310,6 +310,7 @@ conf_create(void)
 	conf->cpp_extension = x_strdup("");
 	conf->direct_mode = true;
 	conf->disable = false;
+	conf->external = x_strdup("");
 	conf->extra_files_to_hash = x_strdup("");
 	conf->hard_link = false;
 	conf->hash_dir = false;
@@ -345,6 +346,7 @@ conf_free(struct conf *conf)
 	free(conf->compiler);
 	free(conf->compiler_check);
 	free(conf->cpp_extension);
+	free(conf->external);
 	free(conf->extra_files_to_hash);
 	free(conf->log_file);
 	free(conf->path);
@@ -553,6 +555,9 @@ conf_print_items(struct conf *conf,
 
 	reformat(&s, "disable = %s", bool_to_string(conf->disable));
 	printer(s, conf->item_origins[find_conf("disable")->number], context);
+
+	reformat(&s, "external = %s", conf->external);
+	printer(s, conf->item_origins[find_conf("external")->number], context);
 
 	reformat(&s, "extra_files_to_hash = %s", conf->extra_files_to_hash);
 	printer(s, conf->item_origins[find_conf("extra_files_to_hash")->number],

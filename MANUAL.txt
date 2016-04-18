@@ -328,6 +328,11 @@ WRAPPERS>>.
     to 6, and must be no lower than 1 (fastest, worst compression) and no
     higher than 9 (slowest, best compression).
 
+*external* (*CCACHE_EXTERNAL*)::
+
+    This setting can be used to look for "external" cached compiler output.
+    It's an extra directory to be searched when reading/writing cache objects.
+
 *cpp_extension* (*CCACHE_EXTENSION*)::
 
     This setting can be used to force a certain extension for the intermediate

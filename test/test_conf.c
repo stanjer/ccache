@@ -20,7 +20,7 @@
 #include "test/framework.h"
 #include "test/util.h"
 
-#define N_CONFIG_ITEMS 27
+#define N_CONFIG_ITEMS 28
 static struct {
 	char *descr;
 	const char *origin;
@@ -355,6 +355,7 @@ TEST(conf_print_items)
 		"ce",
 		false,
 		true,
+		"e",
 		"efth",
 		true,
 		true,
@@ -395,6 +396,7 @@ TEST(conf_print_items)
 	CHECK_STR_EQ("cpp_extension = ce", received_conf_items[n++].descr);
 	CHECK_STR_EQ("direct_mode = false", received_conf_items[n++].descr);
 	CHECK_STR_EQ("disable = true", received_conf_items[n++].descr);
+	CHECK_STR_EQ("external = e", received_conf_items[n++].descr);
 	CHECK_STR_EQ("extra_files_to_hash = efth", received_conf_items[n++].descr);
 	CHECK_STR_EQ("hard_link = true", received_conf_items[n++].descr);
 	CHECK_STR_EQ("hash_dir = true", received_conf_items[n++].descr);
