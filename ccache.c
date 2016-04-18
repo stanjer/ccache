@@ -106,6 +106,9 @@ static char *output_dia = NULL;
  *  up). Contains pathname if not NULL. */
 static char *output_dwo = NULL;
 
+/* the cached key */
+static char *cached_key;
+
 /*
  * Name (represented as a struct file_hash) of the file containing the cached
  * object code.
@@ -129,6 +132,9 @@ static char *cached_stderr;
  * (cachedir/a/b/cdef[...]-size.d).
  */
 static char *cached_dep;
+
+/* the manifest key */
+static char *manifest_name;
 
 /*
  * Full path to the file containing the coverage information
@@ -828,6 +834,33 @@ put_file_in_cache(const char *source, const char *dest)
 	stats_update_size(file_size(&st), 1);
 }
 
+static void
+put_file_in_external(const char *external, const char *source,
+                     const char *name, const char *suffix)
+{
+	char *external_path;
+	struct stat st;
+
+	external_path = get_path_in_cache(external, name, suffix);
+	if (stat(source, &st) == 0) {
+		cc_log("Storing %s%s in external", name, suffix);
+		/* Skip already existing file */
+		if (stat(external_path, &st) == 0) {
+			free(external_path);
+			return;
+		}
+		if (create_parent_dirs(external_path) != 0) {
+			fatal("Failed to create parent directory for %s: %s",
+			      external_path, strerror(errno));
+		}
+		if (copy_file(source, external_path, 0)) {
+			cc_log("Failed to copy %s to %s: %s", source,
+			       external_path, strerror(errno));
+		}
+	}
+	free(external_path);
+}
+
 /* Copy or link a file from the cache. */
 static void
 get_file_from_cache(const char *source, const char *dest)
@@ -869,6 +902,31 @@ get_file_from_cache(const char *source, const char *dest)
 	cc_log("Created from cache: %s -> %s", source, dest);
 }
 
+static void
+get_file_from_external(const char *external, const char *dest,
+                       const char *name, const char *suffix)
+{
+	char *external_path;
+	struct stat st;
+
+	external_path = get_path_in_cache(external, name, suffix);
+	if (stat(dest, &st) != 0) {
+		cc_log("Getting %s%s from external", name, suffix);
+		/* Skip external if missing */
+		if (stat(external_path, &st) != 0 && errno == ENOENT) {
+			free(external_path);
+			return;
+		}
+		if (copy_file(external_path, dest, 0)) {
+			cc_log("Failed to copy %s to %s: %s",
+			       external_path, dest, strerror(errno));
+		} else {
+			stats_update_size(file_size(&st), 1);
+		}
+	}
+	free(external_path);
+}
+
 /* Send cached stderr, if any, to stderr. */
 static void
 send_cached_stderr(void)
@@ -901,6 +959,10 @@ void update_manifest_file(void)
 		update_mtime(manifest_path);
 		if (x_stat(manifest_path, &st) == 0) {
 			stats_update_size(file_size(&st) - old_size, old_size == 0 ? 1 : 0);
+			if (strlen(conf->external) > 0) {
+				put_file_in_external(conf->external, manifest_path,
+				                     manifest_name, ".manifest");
+			}
 		}
 	} else {
 		cc_log("Failed to add object file hash to %s", manifest_path);
@@ -1172,6 +1234,15 @@ to_cache(struct args *args)
 		}
 	}
 
+	if (strlen(conf->external) > 0) {
+		if (generating_dependencies)
+			put_file_in_external(conf->external, cached_dep, cached_key, ".d");
+		if (output_dia)
+			put_file_in_external(conf->external, cached_dia, cached_key, ".dia");
+		put_file_in_external(conf->external, cached_stderr, cached_key, ".stderr");
+		put_file_in_external(conf->external, cached_obj, cached_key, ".o");
+	}
+
 	/* Everything OK. */
 	send_cached_stderr();
 	update_manifest_file();
@@ -1300,6 +1371,7 @@ update_cached_result_globals(struct file_hash *hash)
 	const char *cache_dir;
 	cache_dir = conf->cache_dir;
 	object_name = format_hash_as_string(hash->hash, hash->size);
+	cached_key = strdup(object_name);
 	cached_obj_hash = hash;
 	cached_obj = get_path_in_cache(cache_dir, object_name, ".o");
 	cached_stderr = get_path_in_cache(cache_dir, object_name, ".stderr");
@@ -1649,7 +1721,6 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 	}
 
 	if (direct_mode) {
-		char *manifest_name;
 		int result;
 
 		/* Hash environment variables that affect the preprocessor output. */
@@ -1692,10 +1763,13 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 		}
 		manifest_name = hash_result(hash);
 		manifest_path = get_path_in_cache(conf->cache_dir, manifest_name, ".manifest");
-		free(manifest_name);
 		/* Check if the manifest file is there. */
 		if (stat(manifest_path, &st) != 0) {
 			cc_log("Manifest file %s not in cache", manifest_path);
+			if (strlen(conf->external) > 0) {
+				get_file_from_external(conf->external, manifest_path,
+				                       manifest_name, ".manifest");
+			}
 			return NULL;
 		}
 		cc_log("Looking for object file hash in %s", manifest_path);
@@ -1733,8 +1807,20 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 
 	if (stat(cached_obj, &st) != 0) {
 		cc_log("Object file %s not in cache", cached_obj);
+		if (strlen(conf->external) > 0) {
+			if (generating_dependencies)
+				get_file_from_external(conf->external, cached_dep, cached_key, ".d");
+			if (output_dia)
+				get_file_from_external(conf->external, cached_dia, cached_key, ".dia");
+			get_file_from_external(conf->external, cached_stderr, cached_key, ".stderr");
+			get_file_from_external(conf->external, cached_obj, cached_key, ".o");
+			if (stat(cached_obj, &st) == 0) {
+				goto found;
+			}
+		}
 		return;
 	}
+found:
 
 	/* Check if the diagnostic file is there. */
 	if (output_dia && stat(cached_dia, &st) != 0) {
@@ -2886,6 +2972,7 @@ cc_reset(void)
 	free(output_dep); output_dep = NULL;
 	free(output_cov); output_cov = NULL;
 	free(output_dia); output_dia = NULL;
+	free(cached_key); cached_key = NULL;
 	free(cached_obj_hash); cached_obj_hash = NULL;
 	free(cached_obj); cached_obj = NULL;
 	free(cached_dwo); cached_dwo = NULL;
@@ -2893,6 +2980,7 @@ cc_reset(void)
 	free(cached_dep); cached_dep = NULL;
 	free(cached_cov); cached_cov = NULL;
 	free(cached_dia); cached_dia = NULL;
+	free(manifest_name); manifest_name = NULL;
 	free(manifest_path); manifest_path = NULL;
 	time_of_compilation = 0;
 	if (included_files) {
