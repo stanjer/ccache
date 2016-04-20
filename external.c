@@ -1,9 +1,10 @@
 
 #include "ccache.h"
 
-int external_init(const char *external)
+int external_init(const char *external, char **errmsg)
 {
 	(void) external;
+	*errmsg = NULL;
 	return 0;
 }
 
@@ -59,8 +60,7 @@ get_file_from_external(const char *external, const char *dest,
 	free(external_path);
 }
 
-int external_release(const char *external)
+int external_release(void)
 {
-	(void) external;
 	return 0;
 }

@@ -2903,6 +2903,12 @@ initialize(void)
 		create_initial_config_file(conf, primary_config_path);
 	}
 
+	if (strlen(conf->external) > 0) {
+		if (!external_init(conf->external, &errmsg)) {
+			fatal("%s", errmsg);
+		}
+	}
+
 	exitfn_init();
 	exitfn_add_nullary(stats_flush);
 	exitfn_add_nullary(clean_up_pending_tmp_files);
@@ -2955,6 +2961,8 @@ cc_reset(void)
 	free(cpp_stderr); cpp_stderr = NULL;
 	free(stats_file); stats_file = NULL;
 	output_is_precompiled_header = false;
+
+	external_release();
 
 	conf = conf_create();
 	using_split_dwarf = false;
