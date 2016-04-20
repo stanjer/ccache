@@ -1,9 +1,6 @@
 
 #include "ccache.h"
 
-extern char *
-get_path_in_cache(const char *dir, const char *name, const char *suffix);
-
 int init_external(const char *external)
 {
 	(void) external;

@@ -243,6 +243,7 @@ void lockfile_release(const char *path);
 extern time_t time_of_compilation;
 void block_signals(void);
 void unblock_signals(void);
+char *get_path_in_cache(const char *dir, const char *name, const char *suffix);
 bool cc_process_args(struct args *args, struct args **preprocessor_args,
                     struct args **compiler_args);
 void cc_reset(void);
