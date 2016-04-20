@@ -29,7 +29,7 @@ put_file_in_external(const char *external, const char *source,
 			fatal("Failed to create parent directory for %s: %s",
 			      external_path, strerror(errno));
 		}
-		if (copy_file(source, external_path, 0)) {
+		if (copy_uncompressed_file(source, external_path, 0)) {
 			cc_log("Failed to copy %s to %s: %s", source,
 			       external_path, strerror(errno));
 		}
@@ -52,7 +52,7 @@ get_file_from_external(const char *external, const char *dest,
 			free(external_path);
 			return;
 		}
-		if (copy_file(external_path, dest, 0)) {
+		if (copy_uncompressed_file(external_path, dest, 0)) {
 			cc_log("Failed to copy %s to %s: %s",
 			       external_path, dest, strerror(errno));
 		} else {
