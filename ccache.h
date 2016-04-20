@@ -175,6 +175,19 @@ char *read_text_file(const char *path, size_t size_hint);
 char *subst_env_in_string(const char *str, char **errmsg);
 
 /* ------------------------------------------------------------------------- */
+/* external.c */
+
+int init_external(const char *external);
+
+void put_file_in_external(const char *external, const char *source,
+                     const char *name, const char *suffix);
+
+void get_file_from_external(const char *external, const char *dest,
+                       const char *name, const char *suffix);
+
+int release_external(const char *external);
+
+/* ------------------------------------------------------------------------- */
 /* stats.c */
 
 void stats_update(enum stats stat);

@@ -31,6 +31,7 @@ non_3pp_sources = \
     counters.c \
     execute.c \
     exitfn.c \
+    external.c \
     hash.c \
     hashutil.c \
     language.c \
