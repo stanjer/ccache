@@ -179,7 +179,7 @@ char *subst_env_in_string(const char *str, char **errmsg);
 /* ------------------------------------------------------------------------- */
 /* external.c */
 
-int init_external(const char *external);
+int external_init(const char *external);
 
 void put_file_in_external(const char *external, const char *source,
                      const char *name, const char *suffix);
@@ -187,7 +187,7 @@ void put_file_in_external(const char *external, const char *source,
 void get_file_from_external(const char *external, const char *dest,
                        const char *name, const char *suffix);
 
-int release_external(const char *external);
+int external_release(const char *external);
 
 /* ------------------------------------------------------------------------- */
 /* stats.c */
