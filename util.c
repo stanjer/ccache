@@ -1658,6 +1658,9 @@ x_readlink(const char *path)
 }
 #endif
 
+/* Avoid breaking the api */
+static bool binary = true;
+
 /*
  * Reads the content of a file. Size hint 0 means no hint. Returns true on
  * success, otherwise false.
@@ -1676,7 +1679,7 @@ read_file(const char *path, size_t size_hint, char **data, size_t *size)
 	}
 	size_hint = (size_hint < 1024) ? 1024 : size_hint;
 
-	fd = open(path, O_RDONLY | O_BINARY);
+	fd = open(path, O_RDONLY | (binary ? O_BINARY : O_TEXT));
 	if (fd == -1) {
 		return false;
 	}
@@ -1717,13 +1720,15 @@ read_text_file(const char *path, size_t size_hint)
 	size_t size;
 	char *data;
 
+	binary = false;
 	if (read_file(path, size_hint, &data, &size)) {
 		data = x_realloc(data, size + 1);
 		data[size] = '\0';
-		return data;
 	} else {
-		return NULL;
+		data = NULL;
 	}
+	binary = true;
+	return data;
 }
 
 static bool
