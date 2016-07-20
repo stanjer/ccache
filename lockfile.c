@@ -43,6 +43,9 @@ lockfile_acquire(const char *path, unsigned staleness_limit)
 	int ret;
 #endif
 	unsigned to_sleep = 1000, slept = 0; /* Microseconds. */
+#ifdef HAVE_NANOSLEEP
+	struct timespec req, rem;
+#endif
 
 	while (true) {
 		free(my_content);
@@ -177,8 +180,16 @@ lockfile_acquire(const char *path, unsigned staleness_limit)
 		}
 		cc_log("lockfile_acquire: failed to acquire %s; sleeping %u microseconds",
 		       lockfile, to_sleep);
+#ifdef HAVE_NANOSLEEP
+		req.tv_sec = to_sleep / 1000000;
+		req.tv_nsec = to_sleep * 1000;
+		nanosleep(&req, &rem);
+		slept += (req.tv_sec - rem.tv_sec) * 1000000;
+		slept += (req.tv_nsec - rem.tv_nsec) / 1000;
+#else
 		usleep(to_sleep);
 		slept += to_sleep;
+#endif
 		to_sleep *= 2;
 	}
 
