@@ -625,11 +625,19 @@ format_hash_as_string(const unsigned char *hash, int size)
 
 	ret = x_malloc(53);
 	for (i = 0; i < 16; i++) {
+#if defined(__MINGW32__) && defined(__MSVCRT__)
+		rpl_snprintf(&ret[i*2], 3, "%02x", (unsigned) hash[i]);
+#else
 		sprintf(&ret[i*2], "%02x", (unsigned) hash[i]);
-	}
+#endif
+		}
 	if (size >= 0) {
+#if defined(__MINGW32__) && defined(__MSVCRT__)
+		rpl_snprintf(&ret[i*2], 21, "-%d", size);
+#else
 		sprintf(&ret[i*2], "-%d", size);
-	}
+#endif
+		}
 
 	return ret;
 }

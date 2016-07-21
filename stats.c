@@ -89,6 +89,23 @@ static struct {
 	{ STATS_NONE, NULL, NULL, 0 }
 };
 
+
+#if defined(__MINGW32__) && defined(__MSVCRT__)
+static int rpl_printf (const char *format, ...)
+{
+	va_list argv;
+	char buf[1024];
+	int retval;
+
+	va_start(argv, format);
+	retval = rpl_vsnprintf(buf, sizeof(buf), format, argv);
+	retval = printf("%s", buf);
+	va_end(argv);
+	return retval;
+}
+#define printf rpl_printf
+#endif
+
 static void
 display_size(uint64_t size)
 {
