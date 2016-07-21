@@ -889,7 +889,7 @@ process_preprocessed_file(struct mdfour *hash, const char *path)
 			path = make_relative_path(path);
 			hash_string(hash, path);
 			remember_include_file(path, hash, system);
-			p = r;
+			p = q;
 		} else {
 			q++;
 		}
