@@ -46,6 +46,15 @@ test_failed() {
     exit 1
 }
 
+seq() {
+    # Solaris doesn't have /usr/bin/seq <sigh>
+    if [ -n "$2" ]; then
+        echo '[1+pd'$2'>aq]sa'$1' 1-lax' | dc
+    else
+        echo '[1+pd'$1'>aq]sa1 1-lax' | dc
+    fi
+}
+
 generate_code() {
     local nlines=$1
     local outfile=$2
