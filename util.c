@@ -739,6 +739,10 @@ void x_unsetenv(const char *name)
 {
 #ifdef HAVE_UNSETENV
 	unsetenv(name);
+#elif defined(_WIN32)
+	char *str = format("%s=", name);
+	putenv(str);
+	free(str);
 #else
 	putenv(x_strdup(name)); // Leak to environment.
 #endif
