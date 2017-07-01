@@ -1,8 +1,8 @@
-FROM ubuntu:xenial
+FROM ubuntu:trusty
 
 RUN apt-get update \
         && apt-get install -y --no-install-recommends \
-                gcc \
+                gcc-mingw-w64-x86-64 \
                 make \
                 autoconf \
                 gperf \
@@ -13,7 +13,10 @@ WORKDIR /tmp/build
 
 COPY . .
 
+ENV CC x86_64-w64-mingw32-gcc
+
 RUN ./autogen.sh \
-        && ./configure \
+        && ./configure --host=x86_64-w64-mingw32 \
         && make \
-        && make test
+        && make test/main.exe
+

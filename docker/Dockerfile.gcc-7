@@ -1,8 +1,12 @@
-FROM ubuntu:xenial
+FROM ubuntu:trusty
 
 RUN apt-get update \
         && apt-get install -y --no-install-recommends \
-                gcc \
+                software-properties-common \
+        && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+        && apt-get update \
+        && apt-get install -y --no-install-recommends \
+                gcc-7 \
                 make \
                 autoconf \
                 gperf \
@@ -12,6 +16,8 @@ RUN apt-get update \
 WORKDIR /tmp/build
 
 COPY . .
+
+ENV CC gcc-7
 
 RUN ./autogen.sh \
         && ./configure \

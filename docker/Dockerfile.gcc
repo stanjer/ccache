@@ -1,4 +1,4 @@
-FROM ubuntu:xenial
+FROM ubuntu:precise
 
 RUN apt-get update \
         && apt-get install -y --no-install-recommends \
@@ -12,6 +12,8 @@ RUN apt-get update \
 WORKDIR /tmp/build
 
 COPY . .
+
+ENV CC gcc
 
 RUN ./autogen.sh \
         && ./configure \

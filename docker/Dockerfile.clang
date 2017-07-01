@@ -1,8 +1,9 @@
-FROM ubuntu:xenial
+FROM ubuntu:precise
 
 RUN apt-get update \
         && apt-get install -y --no-install-recommends \
-                gcc \
+                clang \
+                elfutils \
                 make \
                 autoconf \
                 gperf \
@@ -12,6 +13,8 @@ RUN apt-get update \
 WORKDIR /tmp/build
 
 COPY . .
+
+ENV CC clang
 
 RUN ./autogen.sh \
         && ./configure \

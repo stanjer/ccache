@@ -8,6 +8,7 @@ CPPCHECK = cppcheck
 CPPCHECK_SUPPRESSIONS = cppcheck-suppressions.txt
 SCAN_BUILD = scan-build
 DOCKER = docker
+DOCKERFILE = $(srcdir)/Dockerfile
 GPERF = gperf
 XSLTPROC = xsltproc
 MANPAGE_XSL = $(shell if [ -e /usr/local/etc/asciidoc/docbook-xsl/manpage.xsl ]; \
@@ -169,7 +170,7 @@ analyze:
 	$(SCAN_BUILD) --use-cc=$(CC) --status-bugs $(MAKE) -B
 
 .PHONY: docker
-docker: Dockerfile
-	$(DOCKER) build $(srcdir)
+docker: $(DOCKERFILE)
+	$(DOCKER) build -f $(DOCKERFILE) $(srcdir)
 
 -include .deps/*.d
