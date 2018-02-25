@@ -3,7 +3,7 @@
 # A simple test suite for ccache.
 #
 # Copyright (C) 2002-2007 Andrew Tridgell
-# Copyright (C) 2009-2017 Joel Rosdahl
+# Copyright (C) 2009-2018 Joel Rosdahl
 #
 # This program is free software; you can redistribute it and/or modify it under
 # the terms of the GNU General Public License as published by the Free Software
@@ -37,7 +37,7 @@ test_failed() {
     echo
     echo "Test suite:     $(bold $CURRENT_SUITE)"
     echo "Test case:      $(bold $CURRENT_TEST)"
-    echo "Failure reason: $(red $1)"
+    echo "Failure reason: $(red "$1")"
     echo
     echo "ccache -s:"
     $CCACHE -s
@@ -145,28 +145,28 @@ expect_file_count() {
 }
 
 run_suite() {
-    local name=$1
+    local suite_name=$1
 
-    CURRENT_SUITE=$name
+    CURRENT_SUITE=$suite_name
     UNCACHED_COMPILE=uncached_compile
 
     cd $ABS_TESTDIR
     rm -rf $ABS_TESTDIR/fixture
 
-    if type SUITE_${name}_PROBE >/dev/null 2>&1; then
+    if type SUITE_${suite_name}_PROBE >/dev/null 2>&1; then
         mkdir $ABS_TESTDIR/probe
         cd $ABS_TESTDIR/probe
-        local skip_reason="$(SUITE_${name}_PROBE)"
+        local skip_reason="$(SUITE_${suite_name}_PROBE)"
         cd $ABS_TESTDIR
         rm -rf $ABS_TESTDIR/probe
         if [ -n "$skip_reason" ]; then
-            echo "Skipped test suite $name [$skip_reason]"
+            echo "Skipped test suite $suite_name [$skip_reason]"
             return
         fi
     fi
 
-    printf "Running test suite %s" "$(bold $name)"
-    SUITE_$name
+    printf "Running test suite %s" "$(bold $suite_name)"
+    SUITE_$suite_name
     echo
 }
 
@@ -179,36 +179,11 @@ uncached_compile() {
 TEST() {
     CURRENT_TEST=$1
 
-    unset CCACHE_BASEDIR
-    unset CCACHE_CC
-    unset CCACHE_COMMENTS
-    unset CCACHE_COMPILERCHECK
-    unset CCACHE_COMPRESS
-    unset CCACHE_CPP2
-    unset CCACHE_DIR
-    unset CCACHE_DISABLE
-    unset CCACHE_EXTENSION
-    unset CCACHE_EXTRAFILES
-    unset CCACHE_HARDLINK
-    unset CCACHE_IGNOREHEADERS
-    unset CCACHE_LIMIT_MULTIPLE
-    unset CCACHE_LOGFILE
-    unset CCACHE_MEMCACHED_CONF
-    unset CCACHE_MEMCACHED_ONLY
-    unset CCACHE_NLEVELS
-    unset CCACHE_NOCPP2
-    unset CCACHE_NOHASHDIR
-    unset CCACHE_NOSTATS
-    unset CCACHE_PATH
-    unset CCACHE_PREFIX
-    unset CCACHE_PREFIX_CPP
-    unset CCACHE_READONLY
-    unset CCACHE_READONLY_DIRECT
-    unset CCACHE_RECACHE
-    unset CCACHE_SLOPPINESS
-    unset CCACHE_TEMPDIR
-    unset CCACHE_UMASK
-    unset CCACHE_UNIFY
+    while read name; do
+        unset $name
+    done <<EOF
+$(env | sed -n 's/^\(CCACHE_[A-Z0-9_]*\)=.*$/\1/p')
+EOF
     unset GCC_COLORS
 
     export CCACHE_CONFIGPATH=$ABS_TESTDIR/ccache.conf
@@ -225,7 +200,7 @@ TEST() {
     CCACHE_COMPILE="$CCACHE $COMPILER"
 
     if $VERBOSE; then
-        printf "\n  %s" $CURRENT_TEST
+        printf "\n  %s" "$CURRENT_TEST"
     else
         printf .
     fi
@@ -235,8 +210,8 @@ TEST() {
     rm -rf $ABS_TESTDIR/run
     mkdir $ABS_TESTDIR/run
     cd $ABS_TESTDIR/run
-    if type SUITE_${name}_SETUP >/dev/null 2>&1; then
-        SUITE_${name}_SETUP
+    if type SUITE_${suite_name}_SETUP >/dev/null 2>&1; then
+        SUITE_${suite_name}_SETUP
     fi
 }
 
@@ -1106,6 +1081,38 @@ EOF
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 0
     expect_stat 'unsupported code directive' 1
+
+    # -------------------------------------------------------------------------
+    TEST "UNCACHED_ERR_FD"
+
+    cat >compiler.sh <<'EOF'
+#!/bin/sh
+if [ "$1" = "-E" ]; then
+    echo preprocessed
+    printf ${N}Pu >&$UNCACHED_ERR_FD
+else
+    echo compiled >test1.o
+    printf ${N}Cc >&2
+    printf ${N}Cu >&$UNCACHED_ERR_FD
+fi
+EOF
+    chmod +x compiler.sh
+
+    N=1 $CCACHE ./compiler.sh -c test1.c 2>stderr.txt
+    stderr=$(cat stderr.txt)
+    expect_stat 'cache hit (preprocessed)' 0
+    expect_stat 'cache miss' 1
+    if [ "$stderr" != "1Pu1Cu1Cc" ]; then
+        test_failed "Unexpected stderr: $stderr != 1Pu1Cu1Cc"
+    fi
+
+    N=2 $CCACHE ./compiler.sh -c test1.c 2>stderr.txt
+    stderr=$(cat stderr.txt)
+    expect_stat 'cache hit (preprocessed)' 1
+    expect_stat 'cache miss' 1
+    if [ "$stderr" != "2Pu1Cc" ]; then
+        test_failed "Unexpected stderr: $stderr != 2Pu1Cc"
+    fi
 }
 
 # =============================================================================
@@ -1287,7 +1294,7 @@ EOF
 # =============================================================================
 
 SUITE_debug_prefix_map_PROBE() {
-    if ! $COMPILER_TYPE_GCC || $COMPILER_USES_MINGW; then
+    if $COMPILER_USES_MINGW; then
         echo "-fdebug-prefix-map not supported by compiler"
     fi
 }
@@ -1335,7 +1342,7 @@ SUITE_debug_prefix_map() {
     TEST "Multiple -fdebug-prefix-map"
 
     cd dir1
-    CCACHE_BASEDIR=`pwd` $CCACHE_COMPILE -I`pwd`/include -g -fdebug-prefix-map=`pwd`=foobar -fdebug-prefix-map=foo=bar -c `pwd`/src/test.c -o `pwd`/test.o
+    CCACHE_BASEDIR=`pwd` $CCACHE_COMPILE -I`pwd`/include -g -fdebug-prefix-map=`pwd`=name -fdebug-prefix-map=foo=bar -c `pwd`/src/test.c -o `pwd`/test.o
     expect_stat 'cache hit (direct)' 0
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
@@ -1343,12 +1350,12 @@ SUITE_debug_prefix_map() {
     if grep -E "[^=]`pwd`[^=]" test.o >/dev/null 2>&1; then
         test_failed "Source dir (`pwd`) found in test.o"
     fi
-    if ! grep "foobar" test.o >/dev/null 2>&1; then
-        test_failed "Relocation (foobar) not found in test.o"
+    if ! grep "name" test.o >/dev/null 2>&1; then
+        test_failed "Relocation (name) not found in test.o"
     fi
 
     cd ../dir2
-    CCACHE_BASEDIR=`pwd` $CCACHE_COMPILE -I`pwd`/include -g -fdebug-prefix-map=`pwd`=foobar -fdebug-prefix-map=foo=bar -c `pwd`/src/test.c -o `pwd`/test.o
+    CCACHE_BASEDIR=`pwd` $CCACHE_COMPILE -I`pwd`/include -g -fdebug-prefix-map=`pwd`=name -fdebug-prefix-map=foo=bar -c `pwd`/src/test.c -o `pwd`/test.o
     expect_stat 'cache hit (direct)' 1
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
@@ -2430,9 +2437,13 @@ SUITE_basedir() {
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
 
+    mkdir subdir
+    ln -s `pwd`/include subdir/symlink
+
     # Rewriting triggered by CCACHE_BASEDIR should handle paths with multiple
-    # slashes correctly:
-    CCACHE_BASEDIR=`pwd` $CCACHE_COMPILE -I`pwd`//include -c `pwd`//src/test.c
+    # slashes, redundant "/." parts and "foo/.." parts correctly. Note that the
+    # ".." part of the path is resolved after the symlink has been resolved.
+    CCACHE_BASEDIR=`pwd` $CCACHE_COMPILE -I`pwd`//./subdir/symlink/../include -c `pwd`/src/test.c
     expect_stat 'cache hit (direct)' 1
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
@@ -2716,10 +2727,22 @@ SUITE_cleanup() {
 
     prepare_cleanup_test_dir $CCACHE_DIR/a
 
-    # (9/10) * 30 * 16 = 432
-    $CCACHE -F 432 -M 0 >/dev/null
+    # No cleanup needed.
+    #
+    # 30 * 16 = 480
+    $CCACHE -F 480 -M 0 >/dev/null
     $CCACHE -c >/dev/null
-    # floor(0.8 * 9) = 7
+    expect_file_count 10 '*.o' $CCACHE_DIR
+    expect_file_count 10 '*.d' $CCACHE_DIR
+    expect_file_count 10 '*.stderr' $CCACHE_DIR
+    expect_stat 'files in cache' 30
+    expect_stat 'cleanups performed' 0
+
+    # Reduce file limit
+    #
+    # 21 * 16 = 336
+    $CCACHE -F 336 -M 0 >/dev/null
+    $CCACHE -c >/dev/null
     expect_file_count 7 '*.o' $CCACHE_DIR
     expect_file_count 7 '*.d' $CCACHE_DIR
     expect_file_count 7 '*.stderr' $CCACHE_DIR
@@ -2750,10 +2773,8 @@ SUITE_cleanup() {
 
     prepare_cleanup_test_dir $CCACHE_DIR/a
 
-    # (4/10) * 10 * 4 * 16 = 256
     $CCACHE -F 0 -M 256K >/dev/null
-    $CCACHE -c >/dev/null
-    # floor(0.8 * 4) = 3
+    CCACHE_LOGFILE=/tmp/foo $CCACHE -c >/dev/null
     expect_file_count 3 '*.o' $CCACHE_DIR
     expect_file_count 3 '*.d' $CCACHE_DIR
     expect_file_count 3 '*.stderr' $CCACHE_DIR
@@ -2773,22 +2794,45 @@ SUITE_cleanup() {
     done
 
     # -------------------------------------------------------------------------
-    TEST "Automatic cache cleanup"
+    TEST "Automatic cache cleanup, limit_multiple 0.9"
 
     for x in 0 1 2 3 4 5 6 7 8 9 a b c d e f; do
         prepare_cleanup_test_dir $CCACHE_DIR/$x
     done
 
-    # (9/10) * 30 * 16 = 432
-    $CCACHE -F 432 -M 0 >/dev/null
+    $CCACHE -F 480 -M 0 >/dev/null
+
     expect_file_count 160 '*.o' $CCACHE_DIR
     expect_file_count 160 '*.d' $CCACHE_DIR
     expect_file_count 160 '*.stderr' $CCACHE_DIR
     expect_stat 'files in cache' 480
+    expect_stat 'cleanups performed' 0
 
     touch empty.c
-    $CCACHE_COMPILE -c empty.c -o empty.o
-    # floor(0.8 * 9) = 7
+    CCACHE_LIMIT_MULTIPLE=0.9 $CCACHE_COMPILE -c empty.c -o empty.o
+    expect_file_count 159 '*.o' $CCACHE_DIR
+    expect_file_count 158 '*.d' $CCACHE_DIR
+    expect_file_count 158 '*.stderr' $CCACHE_DIR
+    expect_stat 'files in cache' 475
+    expect_stat 'cleanups performed' 1
+
+    # -------------------------------------------------------------------------
+    TEST "Automatic cache cleanup, limit_multiple 0.7"
+
+    for x in 0 1 2 3 4 5 6 7 8 9 a b c d e f; do
+        prepare_cleanup_test_dir $CCACHE_DIR/$x
+    done
+
+    $CCACHE -F 480 -M 0 >/dev/null
+
+    expect_file_count 160 '*.o' $CCACHE_DIR
+    expect_file_count 160 '*.d' $CCACHE_DIR
+    expect_file_count 160 '*.stderr' $CCACHE_DIR
+    expect_stat 'files in cache' 480
+    expect_stat 'cleanups performed' 0
+
+    touch empty.c
+    CCACHE_LIMIT_MULTIPLE=0.7 $CCACHE_COMPILE -c empty.c -o empty.o
     expect_file_count 157 '*.o' $CCACHE_DIR
     expect_file_count 156 '*.d' $CCACHE_DIR
     expect_file_count 156 '*.stderr' $CCACHE_DIR
@@ -2800,8 +2844,7 @@ SUITE_cleanup() {
 
     prepare_cleanup_test_dir $CCACHE_DIR/a
 
-    # (9/10) * 30 * 16 = 432
-    $CCACHE -F 432 -M 0 >/dev/null
+    $CCACHE -F 336 -M 0 >/dev/null
     backdate $CCACHE_DIR/a/result2-4017.stderr
     $CCACHE -c >/dev/null
     # floor(0.8 * 9) = 7
@@ -2830,26 +2873,29 @@ SUITE_cleanup() {
     touch $CCACHE_DIR/a/abcd.unknown
     $CCACHE -F 0 -M 0 -c >/dev/null # update counters
     expect_stat 'files in cache' 31
-    # (9/10) * 30 * 16 = 432
-    $CCACHE -F 432 -M 0 >/dev/null
+
+    $CCACHE -F 480 -M 0 >/dev/null
     $CCACHE -c >/dev/null
     if [ ! -f $CCACHE_DIR/a/abcd.unknown ]; then
         test_failed "$CCACHE_DIR/a/abcd.unknown removed"
     fi
-    expect_stat 'files in cache' 19
+    expect_stat 'files in cache' 28
 
     # -------------------------------------------------------------------------
     TEST "Cleanup of old unknown file"
 
     prepare_cleanup_test_dir $CCACHE_DIR/a
-    # (9/10) * 30 * 16 = 432
-    $CCACHE -F 432 -M 0 >/dev/null
+    $CCACHE -F 480 -M 0 >/dev/null
     touch $CCACHE_DIR/a/abcd.unknown
     backdate $CCACHE_DIR/a/abcd.unknown
-    $CCACHE -c >/dev/null
+    $CCACHE -F 0 -M 0 -c >/dev/null # update counters
+    expect_stat 'files in cache' 31
+
+    $CCACHE -F 480 -M 0 -c >/dev/null
     if [ -f $CCACHE_DIR/a/abcd.unknown ]; then
         test_failed "$CCACHE_DIR/a/abcd.unknown not removed"
     fi
+    expect_stat 'files in cache' 30
 
     # -------------------------------------------------------------------------
     TEST "Cleanup of tmp file"
@@ -2875,16 +2921,6 @@ SUITE_cleanup() {
     $CCACHE -c >/dev/null
     expect_file_count 1 '.nfs*' $CCACHE_DIR
     expect_stat 'files in cache' 30
-
-    # -------------------------------------------------------------------------
-    TEST "CCACHE_LIMIT_MULTIPLE"
-
-    prepare_cleanup_test_dir $CCACHE_DIR/a
-
-    # (1/1) * 30 * 16 = 480
-    $CCACHE -F 480 >/dev/null
-    CCACHE_LIMIT_MULTIPLE=0.5 $CCACHE -c >/dev/null
-    expect_stat 'files in cache' 15
 }
 
 # =============================================================================
@@ -2960,13 +2996,13 @@ pch_suite_gcc() {
     # -------------------------------------------------------------------------
     TEST "Create .gch, -c, no -o, with opt-in"
 
-    CCACHE_SLOPPINESS=pch_defines $CCACHE_COMPILE $SYSROOT -c pch.h
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines" $CCACHE_COMPILE $SYSROOT -c pch.h
     expect_stat 'cache hit (direct)' 0
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
     rm pch.h.gch
 
-    CCACHE_SLOPPINESS=pch_defines $CCACHE_COMPILE $SYSROOT -c pch.h
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines" $CCACHE_COMPILE $SYSROOT -c pch.h
     expect_stat 'cache hit (direct)' 1
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
@@ -2977,12 +3013,12 @@ pch_suite_gcc() {
     # -------------------------------------------------------------------------
     TEST "Create .gch, no -c, -o, with opt-in"
 
-    CCACHE_SLOPPINESS=pch_defines,time_macros $CCACHE_COMPILE $SYSROOT pch.h -o pch.gch
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT pch.h -o pch.gch
     expect_stat 'cache hit (direct)' 0
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
 
-    CCACHE_SLOPPINESS=pch_defines,time_macros $CCACHE_COMPILE $SYSROOT pch.h -o pch.gch
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT pch.h -o pch.gch
     expect_stat 'cache hit (direct)' 1
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
@@ -3161,13 +3197,13 @@ pch_suite_clang() {
     # -------------------------------------------------------------------------
     TEST "Create .gch, -c, no -o, with opt-in"
 
-    CCACHE_SLOPPINESS=pch_defines,time_macros $CCACHE_COMPILE $SYSROOT -c pch.h
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT -c pch.h
     expect_stat 'cache hit (direct)' 0
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
     rm pch.h.gch
 
-    CCACHE_SLOPPINESS=pch_defines,time_macros $CCACHE_COMPILE $SYSROOT -c pch.h
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT -c pch.h
     expect_stat 'cache hit (direct)' 1
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
@@ -3178,18 +3214,54 @@ pch_suite_clang() {
     # -------------------------------------------------------------------------
     TEST "Create .gch, no -c, -o, with opt-in"
 
-    CCACHE_SLOPPINESS=pch_defines,time_macros $CCACHE_COMPILE $SYSROOT pch.h -o pch.gch
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT pch.h -o pch.gch
     expect_stat 'cache hit (direct)' 0
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
 
-    CCACHE_SLOPPINESS=pch_defines,time_macros $CCACHE_COMPILE $SYSROOT pch.h -o pch.gch
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT pch.h -o pch.gch
     expect_stat 'cache hit (direct)' 1
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
     if [ ! -f pch.gch ]; then
         test_failed "pch.gch missing"
     fi
+
+    # -------------------------------------------------------------------------
+    TEST "Create .gch, include file mtime changed"
+
+    backdate test.h
+    cat <<EOF >pch2.h
+    #include <stdlib.h>
+    #include "test.h"
+EOF
+
+    # Make sure time_of_compilation is at least one second larger than the ctime
+    # of the test.h include, otherwise we might not cache its ctime/mtime.
+    sleep 1
+
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT -c pch2.h
+    expect_stat 'cache hit (direct)' 0
+    expect_stat 'cache hit (preprocessed)' 0
+    expect_stat 'cache miss' 1
+
+    touch test.h
+    sleep 1
+
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT -c pch2.h
+    expect_stat 'cache hit (direct)' 0
+    expect_stat 'cache hit (preprocessed)' 0
+    expect_stat 'cache miss' 2
+
+    $UNCACHED_COMPILE $SYSROOT -c -include pch2.h pch2.c
+    if [ ! -f pch2.o ]; then
+        test_failed "pch.o missing"
+    fi
+
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT -c pch2.h
+    expect_stat 'cache hit (direct)' 1
+    expect_stat 'cache hit (preprocessed)' 0
+    expect_stat 'cache miss' 2
 
     # -------------------------------------------------------------------------
     TEST "Use .gch, no -fpch-preprocess, -include, no sloppiness"
@@ -3287,13 +3359,13 @@ pch_suite_clang() {
     # -------------------------------------------------------------------------
     TEST "Create .pth, -c, -o"
 
-    CCACHE_SLOPPINESS=pch_defines,time_macros $CCACHE_COMPILE $SYSROOT -c pch.h -o pch.h.pth
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT -c pch.h -o pch.h.pth
     expect_stat 'cache hit (direct)' 0
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
     rm -f pch.h.pth
 
-    CCACHE_SLOPPINESS=pch_defines,time_macros $CCACHE_COMPILE $SYSROOT -c pch.h -o pch.h.pth
+    CCACHE_SLOPPINESS="$DEFAULT_SLOPPINESS pch_defines time_macros" $CCACHE_COMPILE $SYSROOT -c pch.h -o pch.h.pth
     expect_stat 'cache hit (direct)' 1
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1

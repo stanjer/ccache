@@ -1,7 +1,7 @@
 // ccache -- a fast C/C++ compiler cache
 //
 // Copyright (C) 2002-2007 Andrew Tridgell
-// Copyright (C) 2009-2017 Joel Rosdahl
+// Copyright (C) 2009-2018 Joel Rosdahl
 //
 // This program is free software; you can redistribute it and/or modify it
 // under the terms of the GNU General Public License as published by the Free
@@ -37,7 +37,7 @@ static const char VERSION_TEXT[] =
   MYNAME " version %s\n"
   "\n"
   "Copyright (C) 2002-2007 Andrew Tridgell\n"
-  "Copyright (C) 2009-2017 Joel Rosdahl\n"
+  "Copyright (C) 2009-2018 Joel Rosdahl\n"
   "\n"
   "This program is free software; you can redistribute it and/or modify it under\n"
   "the terms of the GNU General Public License as published by the Free Software\n"
@@ -213,7 +213,7 @@ static char *cpp_stderr;
 char *stats_file = NULL;
 
 // Whether the output is a precompiled header.
-static bool output_is_precompiled_header = false;
+bool output_is_precompiled_header = false;
 
 // Profile generation / usage information.
 static char *profile_dir = NULL;
@@ -618,12 +618,16 @@ remember_include_file(char *path, struct mdfour *cpp_hash, bool system)
 		}
 	}
 
+	// The comparison using >= is intentional, due to a possible race between
+	// starting compilation and writing the include file. See also the notes
+	// under "Performance" in MANUAL.txt.
 	if (!(conf->sloppiness & SLOPPY_INCLUDE_FILE_MTIME)
 	    && st.st_mtime >= time_of_compilation) {
 		cc_log("Include file %s too new", path);
 		goto failure;
 	}
 
+	// The same >= logic as above applies to the change time of the file.
 	if (!(conf->sloppiness & SLOPPY_INCLUDE_FILE_CTIME)
 	    && st.st_ctime >= time_of_compilation) {
 		cc_log("Include file %s ctime too new", path);
@@ -898,11 +902,11 @@ process_preprocessed_file(struct mdfour *hash, const char *path, bool pump)
 			p = q; // Everything of interest between p and q has been hashed now.
 		} else if (q[0] == '.' && q[1] == 'i' && q[2] == 'n' && q[3] == 'c'
 		           && q[4] == 'b' && q[5] == 'i' && q[6] == 'n') {
-			// An assembler .incbin statement (which could be part of inline
-			// assembly) refers to an external file. If the file changes, the hash
-			// should change as well, but finding out what file to hash is too hard
-			// for ccache, so just bail out.
-			cc_log("Found unsupported .incbin directive in source code");
+			// An assembler .inc bin (without the space) statement, which could be
+			// part of inline assembly, refers to an external file. If the file
+			// changes, the hash should change as well, but finding out what file to
+			// hash is too hard for ccache, so just bail out.
+			cc_log("Found unsupported .inc" "bin directive in source code");
 			stats_update(STATS_UNSUPPORTED_DIRECTIVE);
 			failed();
 		} else if (pump && strncmp(q, "_________", 9) == 0) {
@@ -2036,19 +2040,23 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 		hash_int(hash, MANIFEST_VERSION);
 	}
 
+	// clang will emit warnings for unused linker flags, so we shouldn't skip
+	// those arguments.
+	int is_clang = compiler_is_clang(args);
+
 	// First the arguments.
 	for (int i = 1; i < args->argc; i++) {
-		// -L doesn't affect compilation.
-		if (i < args->argc-1 && str_eq(args->argv[i], "-L")) {
+		// -L doesn't affect compilation (except for clang).
+		if (i < args->argc-1 && str_eq(args->argv[i], "-L") && !is_clang) {
 			i++;
 			continue;
 		}
-		if (str_startswith(args->argv[i], "-L")) {
+		if (str_startswith(args->argv[i], "-L") && !is_clang) {
 			continue;
 		}
 
-		// -Wl,... doesn't affect compilation.
-		if (str_startswith(args->argv[i], "-Wl,")) {
+		// -Wl,... doesn't affect compilation (except for clang).
+		if (str_startswith(args->argv[i], "-Wl,") && !is_clang) {
 			continue;
 		}
 
@@ -2066,7 +2074,9 @@ calculate_object_hash(struct args *args, struct mdfour *hash, int direct_mode)
 		if (!direct_mode && !output_is_precompiled_header
 		    && !using_precompiled_header) {
 			if (compopt_affects_cpp(args->argv[i])) {
-				i++;
+				if (compopt_takes_arg(args->argv[i])) {
+					i++;
+				}
 				continue;
 			}
 			if (compopt_short(compopt_affects_cpp, args->argv[i])) {
@@ -2293,6 +2303,16 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 		return;
 	}
 
+	// We can't trust the objects based on running the preprocessor
+	// when the output is precompiled headers, as the hash does not
+	// include the mtime of each included header, breaking compilation
+	// with clang when the precompiled header is used after touching
+	// one of the included files.
+	if (output_is_precompiled_header && mode == FROMCACHE_CPP_MODE) {
+		cc_log("Not using preprocessed cached object for precompiled header");
+		return;
+	}
+
 	struct stat st;
 	if (stat(cached_obj, &st) != 0) {
 #if HAVE_LIBMEMCACHED
@@ -2408,11 +2428,6 @@ from_fscache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	}
 	if (cached_dwo) {
 		update_mtime(cached_dwo);
-	}
-
-	if (generating_dependencies && mode == FROMCACHE_CPP_MODE
-	    && !conf->read_only && !conf->read_only_direct) {
-		put_file_in_cache(output_dep, cached_dep);
 	}
 
 	send_cached_stderr();
@@ -2714,8 +2729,8 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 
 		// Handle cuda "-optf" and "--options-file" argument.
 		if (str_eq(argv[i], "-optf") || str_eq(argv[i], "--options-file")) {
-			if (i > argc) {
-				cc_log("Expected argument after -optf/--options-file");
+			if (i == argc - 1) {
+				cc_log("Expected argument after %s", argv[i]);
 				stats_update(STATS_ARGS);
 				result = false;
 				goto out;
@@ -2816,7 +2831,7 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 		// Special handling for -x: remember the last specified language before the
 		// input file and strip all -x options from the arguments.
 		if (str_eq(argv[i], "-x")) {
-			if (i == argc-1) {
+			if (i == argc - 1) {
 				cc_log("Missing argument to %s", argv[i]);
 				stats_update(STATS_ARGS);
 				result = false;
@@ -2837,7 +2852,7 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 
 		// We need to work out where the output was meant to go.
 		if (str_eq(argv[i], "-o")) {
-			if (i == argc-1) {
+			if (i == argc - 1) {
 				cc_log("Missing argument to %s", argv[i]);
 				stats_update(STATS_ARGS);
 				result = false;
@@ -2900,7 +2915,7 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 			bool separate_argument = (strlen(argv[i]) == 3);
 			if (separate_argument) {
 				// -MF arg
-				if (i >= argc - 1) {
+				if (i == argc - 1) {
 					cc_log("Missing argument to %s", argv[i]);
 					stats_update(STATS_ARGS);
 					result = false;
@@ -2930,7 +2945,7 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 			char *relpath;
 			if (strlen(argv[i]) == 3) {
 				// -MQ arg or -MT arg
-				if (i >= argc - 1) {
+				if (i == argc - 1) {
 					cc_log("Missing argument to %s", argv[i]);
 					stats_update(STATS_ARGS);
 					result = false;
@@ -3067,7 +3082,7 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 		}
 
 		if (str_eq(argv[i], "--serialize-diagnostics")) {
-			if (i >= argc - 1) {
+			if (i == argc - 1) {
 				cc_log("Missing argument to %s", argv[i]);
 				stats_update(STATS_ARGS);
 				result = false;
@@ -3157,7 +3172,7 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 		// to get better hit rate. A secondary effect is that paths in the standard
 		// error output produced by the compiler will be normalized.
 		if (compopt_takes_path(argv[i])) {
-			if (i == argc-1) {
+			if (i == argc - 1) {
 				cc_log("Missing argument to %s", argv[i]);
 				stats_update(STATS_ARGS);
 				result = false;
@@ -3209,7 +3224,7 @@ cc_process_args(struct args *args, struct args **preprocessor_args,
 
 		// Options that take an argument.
 		if (compopt_takes_arg(argv[i])) {
-			if (i == argc-1) {
+			if (i == argc - 1) {
 				cc_log("Missing argument to %s", argv[i]);
 				stats_update(STATS_ARGS);
 				result = false;
@@ -3726,6 +3741,7 @@ setup_uncached_err(void)
 		cc_log("dup(2) failed: %s", strerror(errno));
 		failed();
 	}
+	// Leak the file descriptor.
 
 	// Leak a pointer to the environment.
 	char *buf = format("UNCACHED_ERR_FD=%d", uncached_fd);
@@ -3941,7 +3957,7 @@ ccache_main_options(int argc, char *argv[])
 
 		case 'c': // --cleanup
 			initialize();
-			cleanup_all(conf);
+			clean_up_all(conf);
 			printf("Cleaned cache\n");
 			break;
 
