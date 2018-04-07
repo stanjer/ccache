@@ -29,8 +29,11 @@ get_root(void)
 #ifndef _WIN32
 	return x_strdup("/");
 #else
-	char volume[4]; // "C:\"
+	char volume[4]; // "C:/"
 	GetVolumePathName(get_cwd(), volume, sizeof(volume));
+	if (volume[2] == '\\') {
+		volume[2] = '/';
+	}
 	return x_strdup(volume);
 #endif
 }
@@ -189,7 +192,7 @@ TEST(sysroot_should_be_rewritten_if_basedir_is_used)
 	free(arg_string);
 
 	CHECK(cc_process_args(orig, &act_cpp, &act_cc));
-	CHECK_STR_EQ(act_cpp->argv[1], "--sysroot=./foo");
+	CHECK_STR_EQ("--sysroot=./foo", act_cpp->argv[1]);
 
 	args_free(orig);
 	args_free(act_cpp);
@@ -212,8 +215,8 @@ TEST(sysroot_with_separate_argument_should_be_rewritten_if_basedir_is_used)
 	free(arg_string);
 
 	CHECK(cc_process_args(orig, &act_cpp, &act_cc));
-	CHECK_STR_EQ(act_cpp->argv[1], "--sysroot");
-	CHECK_STR_EQ(act_cpp->argv[2], "./foo");
+	CHECK_STR_EQ("--sysroot", act_cpp->argv[1]);
+	CHECK_STR_EQ("./foo", act_cpp->argv[2]);
 
 	args_free(orig);
 	args_free(act_cpp);
@@ -368,12 +371,15 @@ TEST(fprofile_flag_with_existing_dir_should_be_rewritten_to_real_path)
 
 TEST(fprofile_flag_with_nonexisting_dir_should_not_be_rewritten)
 {
+	char *path;
+
 	struct args *orig = args_init_from_string(
 	  "gcc -c -fprofile-generate=some/dir foo.c");
+	path = x_realpath("some/dir");
 	struct args *exp_cpp = args_init_from_string(
-	  "gcc -fprofile-generate=some/dir");
+	  format("gcc -fprofile-generate=%s", path));
 	struct args *exp_cc = args_init_from_string(
-	  "gcc -fprofile-generate=some/dir -c");
+	  format("gcc -fprofile-generate=%s -c", path));
 	struct args *act_cpp = NULL, *act_cc = NULL;
 
 	create_file("foo.c", "");

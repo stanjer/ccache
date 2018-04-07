@@ -173,6 +173,7 @@ char *format_parsable_size_with_suffix(uint64_t size);
 bool parse_size_with_suffix(const char *str, uint64_t *size);
 char *x_realpath(const char *path);
 char *gnu_getcwd(void);
+char *escape_backslash(const char *path);
 #ifndef HAVE_STRTOK_R
 char *strtok_r(char *str, const char *delim, char **saveptr);
 #endif

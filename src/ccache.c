@@ -592,8 +592,8 @@ remember_include_file(char *path, struct mdfour *cpp_hash, bool system)
 			continue;
 		}
 		if (strncmp(canonical, ignore, ignore_len) == 0
-		    && (ignore[ignore_len-1] == DIR_DELIM_CH
-		        || canonical[ignore_len] == DIR_DELIM_CH
+		    && (ignore[ignore_len-1] == '/'
+		        || canonical[ignore_len] == '/'
 		        || canonical[ignore_len] == '\0')) {
 			goto ignore;
 		}
@@ -692,13 +692,30 @@ ignore:
 static char *
 make_relative_path(char *path)
 {
+#ifdef _WIN32
+	char *posixpath = strdup(path);
+	// Convert slashes.
+	for (char *p = posixpath; *p; p++) {
+		if (*p == '\\')
+			*p = '/';
+	}
+	if (str_eq(conf->base_dir, "") || !str_startswith(posixpath, conf->base_dir)) {
+		free(posixpath);
+		return path;
+	}
+	free(posixpath);
+#else
 	if (str_eq(conf->base_dir, "") || !str_startswith(path, conf->base_dir)) {
 		return path;
 	}
+#endif
 
 #ifdef _WIN32
 	if (path[0] == '/') {
-		path++;  // Skip leading slash.
+		// Skip leading slash.
+		char *p = strdup(path + 1);
+		free(path);
+		path = p;
 	}
 #endif
 
@@ -726,7 +743,9 @@ make_relative_path(char *path)
 	char *canon_path = x_realpath(path);
 	if (canon_path) {
 		free(path);
-		char *relpath = get_relative_path(get_current_working_dir(), canon_path);
+		char *cwd = x_realpath(get_current_working_dir());
+		char *relpath = get_relative_path(cwd, canon_path);
+		free(cwd);
 		free(canon_path);
 		if (path_suffix) {
 			path = format("%s/%s", relpath, path_suffix);
@@ -878,6 +897,12 @@ process_preprocessed_file(struct mdfour *hash, const char *path, bool pump)
 			bool should_hash_inc_path = true;
 			if (!conf->hash_dir) {
 				char *cwd = gnu_getcwd();
+#ifdef _WIN32
+				// in the cpp output, any backslash characters are escaped (doubled)
+				char *esc = escape_backslash(cwd);
+				free(cwd);
+				cwd = esc;
+#endif
 				if (str_startswith(inc_path, cwd) && str_endswith(inc_path, "//")) {
 					// When compiling with -g or similar, GCC adds the absolute path to
 					// CWD like this:
@@ -1409,6 +1434,7 @@ get_object_name_from_cpp(struct args *args, struct mdfour *hash)
 		args_add(args, input_file);
 		add_prefix(args, conf->prefix_command_cpp);
 		cc_log("Running preprocessor");
+	        cc_log_argv("Preprocessor: ", args->argv);
 		status = execute(args->argv, path_stdout_fd, path_stderr_fd, &compiler_pid);
 		args_pop(args, args_added);
 	}

@@ -1075,7 +1075,7 @@ x_realpath(const char *path)
 {
 	long maxlen = path_max(path);
 	char *ret = x_malloc(maxlen);
-	char *p;
+	char *p = NULL;
 
 #if HAVE_REALPATH
 	p = realpath(path, ret);
@@ -1087,17 +1087,30 @@ x_realpath(const char *path)
 	  path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
 	  FILE_ATTRIBUTE_NORMAL, NULL);
 	if (INVALID_HANDLE_VALUE != path_handle) {
+		BOOL ok;
 #ifdef HAVE_GETFINALPATHNAMEBYHANDLEW
-		GetFinalPathNameByHandle(path_handle, ret, maxlen, FILE_NAME_NORMALIZED);
+		ok = GetFinalPathNameByHandle(path_handle, ret, maxlen, FILE_NAME_NORMALIZED);
 #else
-		GetFileNameFromHandle(path_handle, ret, maxlen);
+		ok = GetFileNameFromHandle(path_handle, ret, maxlen);
 #endif
 		CloseHandle(path_handle);
-		p = ret + 4; // Strip \\?\ from the file name.
+		if (!ok) {
+			return NULL;
+		}
+		p = ret;
+		if (p[0] == '\\' && p[2] == '?') {
+			p = p + 4; // Strip \\?\ from the file name.
+		}
 	} else {
 		snprintf(ret, maxlen, "%s", path);
+		// Convert slashes.
+		for (p = ret; *p; p++) {
+			if (*p == '/')
+				*p = '\\';
+		}
 		p = ret;
 	}
+	cc_log("Real Path: \"%s\"", p);
 #else
 	// Yes, there are such systems. This replacement relies on the fact that when
 	// we call x_realpath we only care about symlinks.
@@ -1138,6 +1151,30 @@ gnu_getcwd(void)
 		}
 		size *= 2;
 	}
+}
+
+char *
+escape_backslash(const char *path)
+{
+	char *ret = x_malloc(strlen(path) * 2 + 1);
+	char *p, *q;
+
+	p = (char *) path;
+	q = (char *) ret;
+
+	do {
+		if (*p == '\\') {
+			*q++ = '\\';
+			*q++ = *p;
+		}
+		else
+		{
+			*q++ = *p;
+		}
+
+	} while(*p++);
+
+	return ret;
 }
 
 #ifndef HAVE_STRTOK_R
@@ -1425,7 +1462,12 @@ x_rename(const char *oldpath, const char *newpath)
 	return rename(oldpath, newpath);
 #else
 	// Windows' rename() refuses to overwrite an existing file.
-	unlink(newpath); // Not x_unlink, as x_unlink calls x_rename.
+	char *tmppath = format("%s.mv.%s", newpath, tmp_string());
+	int rc = rename(newpath, tmppath);
+	if (rc) {
+		cc_log("Rename %s failed: %s", newpath, strerror(errno));
+		unlink(newpath); // Not x_unlink, as x_unlink calls x_rename.
+	}
 	// If the function succeeds, the return value is nonzero.
 	if (MoveFileA(oldpath, newpath) == 0) {
 		LPVOID lp_msg_buf;
@@ -1453,8 +1495,14 @@ x_rename(const char *oldpath, const char *newpath)
 
 		LocalFree(lp_msg_buf);
 		LocalFree(lp_display_buf);
+		free(tmppath);
 		return -1;
 	} else {
+		int rc = unlink(tmppath); // Not x_unlink, as x_unlink calls x_rename.
+		if (rc) {
+			cc_log("Unlink %s failed: %s", tmppath, strerror(errno));
+		}
+		free(tmppath);
 		return 0;
 	}
 #endif

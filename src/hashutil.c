@@ -162,7 +162,14 @@ hash_command_output(struct mdfour *hash, const char *command,
 
 	// Add "echo" command.
 	bool cmd;
-	if (str_startswith(command, "echo")) {
+	if (str_startswith(command,
+	                   "echo") && str_endswith(command, "%compiler%")) {
+		char *sub = strdup(command);
+		sub[strlen(command) - 10] = '\0';
+		command = format("cmd.exe /c \"%s%s\"", sub, compiler);
+		free(sub);
+		cmd = true;
+	} else if (str_startswith(command, "echo")) {
 		command = format("cmd.exe /c \"%s\"", command);
 		cmd = true;
 	} else if (str_startswith(command,

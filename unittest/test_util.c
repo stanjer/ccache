@@ -26,6 +26,10 @@ TEST(basename)
 	CHECK_STR_EQ_FREE2("foo.c", basename("foo.c"));
 	CHECK_STR_EQ_FREE2("foo.c", basename("dir1/dir2/foo.c"));
 	CHECK_STR_EQ_FREE2("foo.c", basename("/dir/foo.c"));
+#ifdef _WIN32
+	CHECK_STR_EQ_FREE2("foo.c", basename("C:/dir/foo.c"));
+	CHECK_STR_EQ_FREE2("foo.c", basename("C:\\dir\\foo.c"));
+#endif
 	CHECK_STR_EQ_FREE2("", basename("dir1/dir2/"));
 }
 
@@ -37,6 +41,10 @@ TEST(dirname)
 	CHECK_STR_EQ_FREE2("/", dirname("/foo.c"));
 	CHECK_STR_EQ_FREE2("dir1/dir2", dirname("dir1/dir2/foo.c"));
 	CHECK_STR_EQ_FREE2("/dir", dirname("/dir/foo.c"));
+#ifdef _WIN32
+	CHECK_STR_EQ_FREE2("C:/dir", dirname("C:/dir/foo.c"));
+	CHECK_STR_EQ_FREE2("C:\\dir", dirname("C:\\dir\\foo.c"));
+#endif
 	CHECK_STR_EQ_FREE2("dir1/dir2", dirname("dir1/dir2/"));
 }
 
@@ -197,6 +205,20 @@ TEST(parse_size_with_suffix)
 		CHECKM(parse_size_with_suffix(sizes[i].size, &size), sizes[i].size);
 		CHECK_INT_EQ(sizes[i].expected, size);
 	}
+}
+
+TEST(x_real_path)
+{
+#ifdef _WIN32
+	CHECK_STR_EQ_FREE2("some\\dir", x_realpath("some/dir"));
+#else
+	CHECK_STR_EQ_FREE2("some/dir", x_realpath("some/dir"));
+#endif
+}
+
+TEST(escape_backslash)
+{
+	CHECK_STR_EQ_FREE2("a\\\\b", escape_backslash("a\\b"));
 }
 
 TEST_SUITE_END

@@ -282,6 +282,11 @@ cct_wipe(const char *path)
 	char *command = format("rm -rf %s", path);
 #else
 	char *command = format("rd /s /q %s", path);
+	if (getenv("SHELL")) {
+		free(command);
+		// Running unittest with MinGW bash
+		command = format("rm -rf %s", path);
+	}
 #endif
 	if (system(command) != 0) {
 		perror(command);

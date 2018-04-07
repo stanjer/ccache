@@ -609,6 +609,14 @@ EOF
     expect_stat 'cache hit (preprocessed)' 1
     expect_stat 'cache miss' 1
 
+if $HOST_OS_WINDOWS; then
+    cat <<EOF >foobar.bat
+@echo off
+echo foo
+echo bar
+EOF
+    CCACHE_COMPILERCHECK='foobar.bat' $CCACHE ./compiler.sh -c test1.c
+else
     cat <<EOF >foobar.sh
 #!/bin/sh
 echo foo
@@ -616,6 +624,7 @@ echo bar
 EOF
     chmod +x foobar.sh
     CCACHE_COMPILERCHECK='./foobar.sh' $CCACHE ./compiler.sh -c test1.c
+fi
     expect_stat 'cache hit (preprocessed)' 1
     expect_stat 'cache miss' 2
 
@@ -785,7 +794,10 @@ EOF
     # -------------------------------------------------------------------------
     TEST "Buggy GCC 6 cpp"
 
-    cat >buggy-cpp <<EOF
+    if $HOST_OS_WINDOWS || $HOST_OS_CYGWIN; then
+	    binary='-b'
+    fi
+    cat >buggy-cpp.sh <<EOF
 #!/bin/sh
 export CCACHE_DISABLE=1 # If $COMPILER happens to be a ccache symlink...
 if echo "\$*" | grep -- -D >/dev/null; then
@@ -793,7 +805,7 @@ if echo "\$*" | grep -- -D >/dev/null; then
 else
   # Mistreat the preprocessor output in the same way as GCC 6 does.
   $COMPILER "\$@" |
-    sed -e '/^# 1 "<command-line>"\$/ a\\
+    sed $binary -e '/^# 1 "<command-line>"\$/ a\\
 # 31 "<command-line>"' \\
         -e 's/^# 1 "<command-line>" 2\$/# 32 "<command-line>" 2/'
 fi
@@ -802,14 +814,14 @@ EOF
     cat <<'EOF' >file.c
 int foo;
 EOF
-    chmod +x buggy-cpp
+    chmod +x buggy-cpp.sh
 
-    $CCACHE ./buggy-cpp -c file.c
+    $CCACHE ./buggy-cpp.sh -c file.c
     expect_stat 'cache hit (direct)' 0
     expect_stat 'cache hit (preprocessed)' 0
     expect_stat 'cache miss' 1
 
-    $CCACHE ./buggy-cpp -DNOT_AFFECTING=1 -c file.c
+    $CCACHE ./buggy-cpp.sh -DNOT_AFFECTING=1 -c file.c
     expect_stat 'cache hit (direct)' 0
     expect_stat 'cache hit (preprocessed)' 1
     expect_stat 'cache miss' 1
@@ -873,6 +885,7 @@ EOF
     expect_stat 'unsupported code directive' 1
 
     # -------------------------------------------------------------------------
+if ! $HOST_OS_WINDOWS && ! $HOST_OS_CYGWIN; then
     TEST "UNCACHED_ERR_FD"
 
     cat >compiler.sh <<'EOF'
@@ -904,6 +917,7 @@ EOF
         test_failed "Unexpected stderr: $stderr != 2Pu1Cc"
     fi
 
+ fi
     # -------------------------------------------------------------------------
     TEST "Invalid boolean environment configuration options"
 
