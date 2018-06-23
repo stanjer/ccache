@@ -3452,12 +3452,14 @@ static int
 ccache_main_options(int argc, char *argv[])
 {
 	enum longopts {
-		DUMP_MANIFEST
+		DUMP_MANIFEST,
+		JSON_MANIFEST
 	};
 	static const struct option options[] = {
 		{"cleanup",       no_argument,       0, 'c'},
 		{"clear",         no_argument,       0, 'C'},
 		{"dump-manifest", required_argument, 0, DUMP_MANIFEST},
+		{"json-manifest", required_argument, 0, JSON_MANIFEST},
 		{"help",          no_argument,       0, 'h'},
 		{"max-files",     required_argument, 0, 'F'},
 		{"max-size",      required_argument, 0, 'M'},
@@ -3474,6 +3476,10 @@ ccache_main_options(int argc, char *argv[])
 		switch (c) {
 		case DUMP_MANIFEST:
 			manifest_dump(optarg, stdout);
+			break;
+
+		case JSON_MANIFEST:
+			manifest_json(optarg, stdout);
 			break;
 
 		case 'c': // --cleanup
