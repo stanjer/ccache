@@ -121,6 +121,10 @@ static struct file_hash *cached_obj_hash;
 // (cachedir/a/b/cdef[...]-size.o).
 static char *cached_obj;
 
+// Full path to the file containing the cached compile command
+// (cachedir/a/b/cdef[...]-size.command).
+static char *cached_command;
+
 // Full path to the file containing the standard error output
 // (cachedir/a/b/cdef[...]-size.stderr).
 static char *cached_stderr;
@@ -1298,6 +1302,17 @@ to_cache(struct args *args)
 		}
 	}
 
+	// Store the original compiler command in the cache, if requested
+	if (conf->store_command) {
+		char *tmp_command = format("%s.tmp.command", cached_obj);
+		FILE *fp = create_tmp_file(&tmp_command, "w");
+		if (fp != NULL) {
+			print_command(fp, orig_args->argv);
+			fclose(fp);
+		}
+		move_file_to_cache_same_fs(tmp_command, cached_command);
+	}
+
 	copy_file_to_cache(output_obj, cached_obj);
 	if (generating_dependencies) {
 		use_relative_paths_in_depfile(output_dep);
@@ -1464,6 +1479,7 @@ update_cached_result_globals(struct file_hash *hash)
 	char *object_name = format_hash_as_string(hash->hash, hash->size);
 	cached_obj_hash = hash;
 	cached_obj = get_path_in_cache(object_name, ".o");
+	cached_command = get_path_in_cache(object_name, ".command");
 	cached_stderr = get_path_in_cache(object_name, ".stderr");
 	cached_dep = get_path_in_cache(object_name, ".d");
 	cached_cov = get_path_in_cache(object_name, ".gcno");
@@ -1987,6 +2003,7 @@ from_cache(enum fromcache_call_mode mode, bool put_object_in_manifest)
 	// Update modification timestamps to save files from LRU cleanup. Also gives
 	// files a sensible mtime when hard-linking.
 	update_mtime(cached_obj);
+	update_mtime(cached_command);
 	update_mtime(cached_stderr);
 	if (produce_dep_file) {
 		update_mtime(cached_dep);
@@ -3203,6 +3220,7 @@ cc_reset(void)
 	free(output_dwo); output_dwo = NULL;
 	free(cached_obj_hash); cached_obj_hash = NULL;
 	free(cached_stderr); cached_stderr = NULL;
+	free(cached_command); cached_command = NULL;
 	free(cached_obj); cached_obj = NULL;
 	free(cached_dep); cached_dep = NULL;
 	free(cached_cov); cached_cov = NULL;

@@ -703,6 +703,17 @@ EOF
     expect_stat 'files in cache' 2
 
     # -------------------------------------------------------------------------
+    TEST "Store command"
+
+    CCACHE_STORECOMMAND=1 $CCACHE_COMPILE -c test1.c
+    expect_file_count 1 '*.command' $CCACHE_DIR
+    expect_stat 'files in cache' 2
+
+    command_file=`find $CCACHE_DIR -name '*.command'`
+    echo "$REAL_COMPILER -c test1.c" > expected.command
+    expect_equal_files $command_file expected.command
+
+    # -------------------------------------------------------------------------
     TEST "--zero-stats"
 
     $CCACHE_COMPILE -c test1.c
