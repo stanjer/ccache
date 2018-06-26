@@ -547,6 +547,9 @@ information.
     Store the original compiler command in the cache, next to the object.
     This feature can be useful when troubleshooting cache hits and misses.
 
+    The first line is the full command line, with the original arguments.
+    Line two is the input (source) and line three is the output (object).
+
 *temporary_dir* (*CCACHE_TEMPDIR*)::
 
     This setting specifies where ccache will put temporary files. The default

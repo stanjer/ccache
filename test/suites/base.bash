@@ -711,6 +711,8 @@ EOF
 
     command_file=`find $CCACHE_DIR -name '*.command'`
     echo "$REAL_COMPILER -c test1.c" > expected.command
+    echo "test1.c" >> expected.command
+    echo "test1.o" >> expected.command
     expect_equal_files $command_file expected.command
 
     # -------------------------------------------------------------------------
