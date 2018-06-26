@@ -542,6 +542,11 @@ information.
     If true, ccache will update the statistics counters on each compilation.
     The default is true.
 
+*store_command* (*CCACHE_STORECOMMAND* or *CCACHE_NOSTORECOMMAND*, see <<_boolean_values,Boolean values>> above)::
+
+    Store the original compiler command in the cache, next to the object.
+    This feature can be useful when troubleshooting cache hits and misses.
+
 *temporary_dir* (*CCACHE_TEMPDIR*)::
 
     This setting specifies where ccache will put temporary files. The default
