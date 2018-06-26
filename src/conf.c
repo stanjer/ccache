@@ -349,6 +349,7 @@ conf_create(void)
 	conf->run_second_cpp = true;
 	conf->sloppiness = 0;
 	conf->stats = true;
+	conf->store_command = false;
 	conf->temporary_dir = x_strdup("");
 	conf->umask = UINT_MAX; // Default: don't set umask.
 	conf->unify = false;
@@ -667,6 +668,9 @@ conf_print_items(struct conf *conf,
 
 	reformat(&s, "stats = %s", bool_to_string(conf->stats));
 	printer(s, conf->item_origins[find_conf("stats")->number], context);
+
+	reformat(&s, "store_command = %s", bool_to_string(conf->store_command));
+	printer(s, conf->item_origins[find_conf("store_command")->number], context);
 
 	reformat(&s, "temporary_dir = %s", conf->temporary_dir);
 	printer(s, conf->item_origins[find_conf("temporary_dir")->number], context);

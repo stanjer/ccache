@@ -33,6 +33,7 @@ struct conf {
 	bool run_second_cpp;
 	unsigned sloppiness;
 	bool stats;
+	bool store_command;
 	char *temporary_dir;
 	unsigned umask;
 	bool unify;

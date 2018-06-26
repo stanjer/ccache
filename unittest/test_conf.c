@@ -18,7 +18,7 @@
 #include "framework.h"
 #include "util.h"
 
-#define N_CONFIG_ITEMS 32
+#define N_CONFIG_ITEMS 33
 static struct {
 	char *descr;
 	const char *origin;
@@ -417,6 +417,7 @@ TEST(conf_print_items)
 		SLOPPY_FILE_STAT_MATCHES|SLOPPY_PCH_DEFINES|
 		SLOPPY_NO_SYSTEM_HEADERS,
 		false,
+		false,
 		"td",
 		022,
 		true,
@@ -468,6 +469,7 @@ TEST(conf_print_items)
 	             " file_stat_matches, no_system_headers",
 	             received_conf_items[n++].descr);
 	CHECK_STR_EQ("stats = false", received_conf_items[n++].descr);
+	CHECK_STR_EQ("store_command = false", received_conf_items[n++].descr);
 	CHECK_STR_EQ("temporary_dir = td", received_conf_items[n++].descr);
 	CHECK_STR_EQ("umask = 022", received_conf_items[n++].descr);
 	CHECK_STR_EQ("unify = true", received_conf_items[n++].descr);
