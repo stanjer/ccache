@@ -1326,6 +1326,8 @@ to_cache(struct args *args)
 		FILE *fp = create_tmp_file(&tmp_command, "w");
 		if (fp != NULL) {
 			print_command(fp, orig_args->argv);
+			fprintf(fp, "%s\n", input_file);
+			fprintf(fp, "%s\n", output_obj);
 			fclose(fp);
 		}
 		move_file_to_cache_same_fs(tmp_command, cached_command);
