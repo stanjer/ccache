@@ -463,7 +463,10 @@ stats_summary(struct conf *conf)
 		counters->data[STATS_ZEROTIMESTAMP] = 0; // Don't add
 		stats_read(fname, counters);
 		time_t current = (time_t) counters->data[STATS_ZEROTIMESTAMP];
-		if (current != 0 && (oldest == 0 || current < oldest)) {
+		if (stat(fname, &st) == 0 && current == 0) {
+			current = st.st_ctime;
+		}
+		if (oldest == 0 || current < oldest) {
 			oldest = current;
 		}
 		if (stat(fname, &st) == 0 && st.st_mtime > updated) {
