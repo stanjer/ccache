@@ -346,6 +346,7 @@ conf_create(void)
 	conf->read_only = false;
 	conf->read_only_direct = false;
 	conf->recache = false;
+	conf->reflink = false;
 	conf->run_second_cpp = true;
 	conf->sloppiness = 0;
 	conf->stats = true;
@@ -633,6 +634,9 @@ conf_print_items(struct conf *conf,
 
 	reformat(&s, "recache = %s", bool_to_string(conf->recache));
 	printer(s, conf->item_origins[find_conf("recache")->number], context);
+
+	reformat(&s, "reflink = %s", bool_to_string(conf->reflink));
+	printer(s, conf->item_origins[find_conf("reflink")->number], context);
 
 	reformat(&s, "run_second_cpp = %s", bool_to_string(conf->run_second_cpp));
 	printer(s, conf->item_origins[find_conf("run_second_cpp")->number], context);

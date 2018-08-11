@@ -18,7 +18,7 @@
 #include "framework.h"
 #include "util.h"
 
-#define N_CONFIG_ITEMS 32
+#define N_CONFIG_ITEMS 33
 static struct {
 	char *descr;
 	const char *origin;
@@ -411,6 +411,7 @@ TEST(conf_print_items)
 		true,
 		true,
 		true,
+		true,
 		.run_second_cpp = false,
 		SLOPPY_FILE_MACRO|SLOPPY_INCLUDE_FILE_MTIME|
 		SLOPPY_INCLUDE_FILE_CTIME|SLOPPY_TIME_MACROS|
@@ -462,6 +463,7 @@ TEST(conf_print_items)
 	CHECK_STR_EQ("read_only = true", received_conf_items[n++].descr);
 	CHECK_STR_EQ("read_only_direct = true", received_conf_items[n++].descr);
 	CHECK_STR_EQ("recache = true", received_conf_items[n++].descr);
+	CHECK_STR_EQ("reflink = true", received_conf_items[n++].descr);
 	CHECK_STR_EQ("run_second_cpp = false", received_conf_items[n++].descr);
 	CHECK_STR_EQ("sloppiness = file_macro, include_file_mtime,"
 	             " include_file_ctime, time_macros, pch_defines,"
