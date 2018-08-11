@@ -368,6 +368,7 @@ sanitize_blacklist
 debug_prefix_map
 masquerading
 hardlink
+reflink
 direct
 basedir
 compression
