@@ -1306,6 +1306,11 @@ to_cache(struct args *args)
 		stats_update(STATS_ERROR);
 		failed();
 	}
+
+	if (generating_dependencies) {
+		use_relative_paths_in_depfile(output_dep);
+	}
+
 	if (st.st_size > 0) {
 		move_file_to_cache_same_fs(tmp_stderr, cached_stderr);
 	} else {
@@ -1318,7 +1323,6 @@ to_cache(struct args *args)
 
 	copy_file_to_cache(output_obj, cached_obj);
 	if (generating_dependencies) {
-		use_relative_paths_in_depfile(output_dep);
 		copy_file_to_cache(output_dep, cached_dep);
 	}
 	if (generating_coverage) {
